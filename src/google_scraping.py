@@ -8,7 +8,8 @@ import argparse
 import pandas as pd
 import re
 
-api_key = os.environ.get('GOOGLEAPI')
+#api_key = os.environ.get('GOOGLEAPI')
+#api_key = 'AIzaSyChPNBO4t214jrW1eO1qTd8jlUYTLO3A_8'
 
 
 def get_next_index(folder_path):
@@ -179,6 +180,8 @@ def process_dataframe(df_geo, lengths, total_images=100000):
                     selected_point = unprocessed_points.sample(n=1)
 
                     lon, lat = selected_point['Longitude'].values[0], selected_point['Latitude'].values[0]
+                    print('lon,lat:')
+                    print(lon,lat)
 
                     # Mark the matching points as processed
                     df_geo.loc[selected_point.index, 'processed_google'] = True
@@ -193,7 +196,10 @@ def process_dataframe(df_geo, lengths, total_images=100000):
                     # scrape_images(lat, lon, country, None)
 
                     attempts = 0  # Reset the attempts counter if a non-empty gdf is returned
+                    print(f'attempts: {attempts}')
                     images_scraped += 1 # adds the number of scraped images to the total
+                    print(f'images_scraped: {images_scraped}')
+
                     break  # Break the inner loop if a non-empty gdf is returned
 
                 if attempts == max_attempts:
@@ -236,6 +242,9 @@ def process_dataframe(df_geo, lengths, total_images=100000):
                         selected_point = unprocessed_points.sample(n=1)
 
                         lon, lat = selected_point['Longitude'].values[0], selected_point['Latitude'].values[0]
+                        print('lon,lat:')
+                        print(lon,lat)
+
 
                         # Mark the matching points as processed
                         df_geo.loc[selected_point.index, 'processed_google'] = True
@@ -250,7 +259,9 @@ def process_dataframe(df_geo, lengths, total_images=100000):
                         # scrape_images(lat, lon, country, region)
 
                         attempts = 0  # Reset the attempts counter if a non-empty gdf is returned
+                        print(f'attempts: {attempts}')
                         images_scraped += 1 # adds the number of scraped images to the total
+                        print(f'images_scraped: {images_scraped}')
                         break  # Break the inner loop if a non-empty gdf is returned
 
                     if attempts == max_attempts:
@@ -276,7 +287,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Scraping images from Google Street View')
     parser.add_argument('-f', '--file', type=str, required=True, help='File with coordinates')
     parser.add_argument('-n', '--number', type=int, required=True, help='Number of images to scrape')
+    parser.add_argument('-a', '--api', type=str, required=True, help='api key')
     args = parser.parse_args()
     file = args.file
     n = args.number
+    api_key = args.api
     main(file, n)
