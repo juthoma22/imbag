@@ -79,7 +79,7 @@ def scrape_images(lat, lon, country, region, api_key, image_folder="/home/data_s
     location = metadata['location']
     date = metadata['date']
     pano_id = metadata['pano_id']
-    copyright = metadata['copyright']
+    #copyright = metadata['copyright']
 
     # take images angled down for every tenth location for car meta
     pitch = -30 if start_index % 10 == 0 else 0
@@ -180,8 +180,6 @@ def process_dataframe(df_geo, lengths, api_key, total_images=100000):
                     selected_point = unprocessed_points.sample(n=1)
 
                     lon, lat = selected_point['Longitude'].values[0], selected_point['Latitude'].values[0]
-                    print('lon,lat:')
-                    print(lon,lat)
 
                     # Mark the matching points as processed
                     df_geo.loc[selected_point.index, 'processed_google'] = True
@@ -238,9 +236,6 @@ def process_dataframe(df_geo, lengths, api_key, total_images=100000):
                         selected_point = unprocessed_points.sample(n=1)
 
                         lon, lat = selected_point['Longitude'].values[0], selected_point['Latitude'].values[0]
-                        print('lon,lat:')
-                        print(lon,lat)
-
 
                         # Mark the matching points as processed
                         df_geo.loc[selected_point.index, 'processed_google'] = True
@@ -255,9 +250,7 @@ def process_dataframe(df_geo, lengths, api_key, total_images=100000):
                         scrape_images(lat, lon, country, region, api_key)
 
                         attempts = 0  # Reset the attempts counter if a non-empty gdf is returned
-                        print(f'attempts: {attempts}')
                         images_scraped += 1 # adds the number of scraped images to the total
-                        print(f'images_scraped: {images_scraped}')
                         break  # Break the inner loop if a non-empty gdf is returned
 
                     if attempts == max_attempts:
