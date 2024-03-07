@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=clip-gpu-country    # Job name
-#SBATCH --output=%j.out      # Name of output file (%j expands to jobId)
+#SBATCH --output=outputs/%j.out      # Name of output file (%j expands to jobId)
 #SBATCH --cpus-per-task=16        # Schedule 8 cores (includes hyperthreading)
 #SBATCH --gres=gpu:a30:1              # Schedule a GPU, or more with gpu:2 etc
 #SBATCH --gres-flags=enforce-binding                    # Get directoy connected cores to GPU
