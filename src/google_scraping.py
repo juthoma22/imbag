@@ -9,7 +9,6 @@ import pandas as pd
 import re
 
 #api_key = os.environ.get('GOOGLEAPI')
-#api_key = 'AIzaSyChPNBO4t214jrW1eO1qTd8jlUYTLO3A_8'
 
 
 def get_next_index(folder_path):
@@ -61,8 +60,8 @@ def distribute_images(df, total_images, key='Country', factor=1, div=1):
     return images_dict
 
 
-def scrape_images(lat, lon, country, region, image_folder="data/google_images"):
 
+def scrape_images(lat, lon, country, region, api_key, image_folder="/home/data_shares/geocv/more_google_images_1"):
     print(f"Scraping for {country} {region}, {lat}, {lon}...")
 
     os.makedirs(image_folder, exist_ok=True)
@@ -80,7 +79,7 @@ def scrape_images(lat, lon, country, region, image_folder="data/google_images"):
     location = metadata['location']
     date = metadata['date']
     pano_id = metadata['pano_id']
-    copyright = metadata['copyright']
+    #copyright = metadata['copyright']
 
     # take images angled down for every tenth location for car meta
     pitch = -30 if start_index % 10 == 0 else 0
@@ -100,16 +99,19 @@ def scrape_images(lat, lon, country, region, image_folder="data/google_images"):
                 print(e)
                 print(f"Could not get image {lat} {lon} {country} {region}. Skipping...")
                 continue
-
-        image = np.asarray(bytearray(response.content), dtype=np.uint8)
-        image = cv2.imdecode(image, cv2.IMREAD_COLOR)
-        file_name_singles = os.path.normpath(f'{image_folder}/google_{start_index}_{heading}.jpg')
-        cv2.imwrite(file_name_singles, image)
+        try:
+            image = np.asarray(bytearray(response.content), dtype=np.uint8)
+            image = cv2.imdecode(image, cv2.IMREAD_COLOR)
+            file_name_singles = os.path.normpath(f'{image_folder}/google_{start_index}_{heading}.jpg')
+            cv2.imwrite(file_name_singles, image)
+        except cv2.error as e:
+            print(f"Error saving image: {file_name_singles} ({e})")
+            continue
 
         # Store metadata
-        metadata.append([f"{start_index}_{heading}", location["lng"], location["lat"], pano_id, url, params, country, region, date, copyright])
+        metadata.append([f"{start_index}_{heading}", location["lng"], location["lat"], pano_id, country, region, date, np.NaN])
 
-    metadata_file_path = f"data/google_image_metadata.csv"
+    metadata_file_path = f"/home/data_shares/geocv/more_google_image_metadata_1.csv"
 
     file_exists = os.path.isfile(metadata_file_path)
     file_is_empty = not file_exists or os.path.getsize(metadata_file_path) == 0
@@ -119,12 +121,10 @@ def scrape_images(lat, lon, country, region, image_folder="data/google_images"):
         writer = csv.writer(file)
         # Write the header only if the file is empty
         if file_is_empty:
-            writer.writerow(["Index", "Longitude", "Latitude", "Pano ID", "Image URL", "Params", "Country", "Region", "Date", "Copyright"])
+            writer.writerow(["Index", "Longitude", "Latitude", "Pano ID", "Country", "Region", "Date", "Climate Zone"])
         writer.writerows(metadata)
 
-    return 0
-
-def meta_data_call(lat, lon):
+def meta_data_call(lat, lon, api_key):
     url = 'https://maps.googleapis.com/maps/api/streetview'
     params = {'size': '640x640', 'location': f'{lat},{lon}', "radius":100, 'fov': '90', 'key': api_key}
 
@@ -132,12 +132,12 @@ def meta_data_call(lat, lon):
     metadata_url = url + '/metadata?'
     metadata_response = requests.get(metadata_url, params=params)
     metadata = metadata_response.json()
-    if metadata['status'] != 'OK' or "Google" not in metadata['copyright']:
+    if metadata['status'] != 'OK' or "© Google" not in metadata['copyright']:
         return -1
     
     return 0
 
-def process_dataframe(df_geo, lengths, total_images=100000):
+def process_dataframe(df_geo, lengths, api_key, total_images=100000):
 
     images_per_country = distribute_images(lengths, total_images, key='Country', factor=10, div=2)
     # divide by 4 to get the number of images per region
@@ -151,10 +151,10 @@ def process_dataframe(df_geo, lengths, total_images=100000):
         df_geo["processed_google"] = False
 
     # read csv file of processed regions and countries
-    processed_regions = pd.read_csv("data/processed_regions_google.csv")
+    processed_regions = pd.read_csv("data/processed_regions_google_1.csv")
     if "Processed" not in processed_regions.columns:
         processed_regions["Processed"] = False
-        processed_regions.to_csv("data/processed_regions_google.csv", index=False)
+        processed_regions.to_csv("data/processed_regions_google_1.csv", index=False)
 
     for country, country_df in df_geo.groupby('Country'):
         print(f"Processing {country}...")
@@ -175,31 +175,26 @@ def process_dataframe(df_geo, lengths, total_images=100000):
                     break
 
                 attempts = 0
-                max_attempts = 10 # keep track of attempts, if too many empty hits skip the region
+                max_attempts = 100 # keep track of attempts, if too many empty hits skip the region
                 while attempts < max_attempts:
                     selected_point = unprocessed_points.sample(n=1)
 
                     lon, lat = selected_point['Longitude'].values[0], selected_point['Latitude'].values[0]
-                    print('lon,lat:')
-                    print(lon,lat)
 
                     # Mark the matching points as processed
                     df_geo.loc[selected_point.index, 'processed_google'] = True
 
                     # add scraping call
-                    val = meta_data_call(lat, lon)
+                    val = meta_data_call(lat, lon, api_key)
 
                     if val == -1:
                         attempts += 1
                         continue
 
-                    # scrape_images(lat, lon, country, None)
+                    scrape_images(lat, lon, country, None, api_key)
 
                     attempts = 0  # Reset the attempts counter if a non-empty gdf is returned
-                    print(f'attempts: {attempts}')
                     images_scraped += 1 # adds the number of scraped images to the total
-                    print(f'images_scraped: {images_scraped}')
-
                     break  # Break the inner loop if a non-empty gdf is returned
 
                 if attempts == max_attempts:
@@ -208,10 +203,9 @@ def process_dataframe(df_geo, lengths, total_images=100000):
         
             # set country as processed
             processed_regions.loc[processed_regions["Country"] == country, "Processed"] = True
-            processed_regions.to_csv("data/processed_regions_google.csv", index=False)
+            processed_regions.to_csv("data/processed_regions_google_1.csv", index=False)
             # set points as processed
             df_geo.reset_index(drop=True).to_feather("data/coords_new.feather")
-            break
         else:
             images_per_region = distribute_images(lengths_per_country, images_per_country[country], key='Region', factor=1, div=1)
             print(images_per_region)
@@ -237,31 +231,26 @@ def process_dataframe(df_geo, lengths, total_images=100000):
                         break
 
                     attempts = 0
-                    max_attempts = 1_000 # keep track of attempts, if too many empty hits skip the region
+                    max_attempts = 100 # keep track of attempts, if too many empty hits skip the region
                     while attempts < max_attempts:
                         selected_point = unprocessed_points.sample(n=1)
 
                         lon, lat = selected_point['Longitude'].values[0], selected_point['Latitude'].values[0]
-                        print('lon,lat:')
-                        print(lon,lat)
-
 
                         # Mark the matching points as processed
                         df_geo.loc[selected_point.index, 'processed_google'] = True
 
                         # add scraping call
-                        val = meta_data_call(lat, lon)
+                        val = meta_data_call(lat, lon, api_key)
 
                         if val == -1:
                             attempts += 1
                             continue
 
-                        # scrape_images(lat, lon, country, region)
+                        scrape_images(lat, lon, country, region, api_key)
 
                         attempts = 0  # Reset the attempts counter if a non-empty gdf is returned
-                        print(f'attempts: {attempts}')
                         images_scraped += 1 # adds the number of scraped images to the total
-                        print(f'images_scraped: {images_scraped}')
                         break  # Break the inner loop if a non-empty gdf is returned
 
                     if attempts == max_attempts:
@@ -270,18 +259,19 @@ def process_dataframe(df_geo, lengths, total_images=100000):
         
                 # set region as processed
                 processed_regions.loc[(processed_regions["Region"] == region) & (processed_regions["Country"]==country), "Processed"] = True
-                processed_regions.to_csv("data/processed_regions_google.csv", index=False)
+                processed_regions.to_csv("data/processed_regions_google_1.csv", index=False)
                 # set points as processed
                 df_geo.reset_index(drop=True).to_feather("data/coords_new.feather")
             # set country as processed
             processed_regions.loc[processed_regions["Country"] == country, "Processed"] = True
-            processed_regions.to_csv("data/processed_regions_google.csv", index=False)
+            processed_regions.to_csv("data/processed_regions_google_1.csv", index=False)
 
 
-def main(file, n):
+def main(file, n, api_key):
     df = pd.read_feather(file)
     lengths = pd.read_csv("data/road_lengths.csv")
-    process_dataframe(df, lengths, n)
+    process_dataframe(df, lengths, api_key, n)
+    print('Done')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Scraping images from Google Street View')
@@ -292,4 +282,4 @@ if __name__ == '__main__':
     file = args.file
     n = args.number
     api_key = args.api
-    main(file, n)
+    main(file, n, api_key)
