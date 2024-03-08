@@ -42,9 +42,9 @@ def load_data(csv_file, image_folder_path):
 
 
 def load_google_data():
-
-    if os.path.exists('/home/data_shares/geocv/hf_datasets/google_climate_dataset_split.hf'):
-        hf_dataset = datasets.load_from_disk('/home/data_shares/geocv/hf_datasets/google_climate_dataset_split.hf')
+    path = "/home/data_shares/geocv/concat_dataset.hf"
+    if os.path.exists(path):
+        hf_dataset = datasets.load_from_disk(path)
         return hf_dataset
     else:
         print("No dataset found")

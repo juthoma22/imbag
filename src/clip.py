@@ -6,6 +6,7 @@ from transformers import CLIPProcessor, CLIPModel
 from datasets import Dataset
 from tqdm import tqdm
 from torchvision import transforms
+from PIL import Image
 import wandb
 from load_data import load_google_data
 import numpy as np
@@ -59,17 +60,23 @@ print(f"Argument: {argument}")
 def process_data(examples):
     captions = []
     images = []
-    for arg, image in zip(examples[argument], examples["image"]):
-        images.append(image)
+    for arg, file_path in zip(examples[argument], examples["file_path"]):
+        # Load image using PIL
+        img = Image.open(file_path)
+        images.append(img)
+
         if argument == "Climate Zone":
             caption = "this image was taken in " + climate_zone_descriptions.get(arg).lower()
-        if argument == "Country":
+        elif argument == "Country":
             caption = "this image was taken in " + arg
         else:
             print("Invalid argument")
+            continue
+
         captions.append(caption)
 
     return processor(text=captions, images=images, return_tensors="pt", padding="max_length", max_length=32, truncation=True)
+
 
 def prepare_dataloader(dataset, batch_size=8):
     dataset.set_format(type='torch', columns=['input_ids', 'attention_mask', 'pixel_values'])
@@ -150,8 +157,8 @@ def load_and_preprocess_data():
     dataset = load_google_data()
     train_dataset, validation_dataset = dataset['train'], dataset['validation']
     workers = torch.cuda.device_count()
-    preprocessed_train_dataset = train_dataset.map(process_data, batched=True, batch_size=1000, num_proc=workers, remove_columns=["image", "Climate Zone", "Country"])
-    preprocessed_validation_dataset = validation_dataset.map(process_data, batched=True, batch_size=1000, num_proc=workers, remove_columns=["image", "Climate Zone", "Country"])
+    preprocessed_train_dataset = train_dataset.map(process_data, batched=True, batch_size=500, num_proc=workers, remove_columns=["file_path", "Climate Zone", "Country"])
+    preprocessed_validation_dataset = validation_dataset.map(process_data, batched=True, batch_size=500, num_proc=workers, remove_columns=["file_path", "Climate Zone", "Country"])
     return preprocessed_train_dataset, preprocessed_validation_dataset
 
 def train_model():
@@ -176,8 +183,15 @@ def sweep():
         "metric": {"name": "val_loss", "goal": "minimize"},
         "parameters": {
             "learning_rate": {"min": 1e-9, "max": 1e-5},
-            "batch_size": {"values": [32, 64, 128]},
-            "epochs": {"values": [8, 12, 16]}
+            "batch_size": {"values": [16, 32, 64]},
+            "epochs": {"values": [2, 3, 4, 5]}
+        },
+        "early_terminate": {
+            "type": "hyperband",
+            "s": 2,  # defines the reduction factor
+            "eta": 3,  # defines the proportion of configurations that are discarded in each iteration
+            "min_iter": 2,  # maximum number of iterations to run
+            "max_iter": 6
         }
     }
 
