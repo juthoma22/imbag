@@ -1,4 +1,4 @@
-# imbag (I'm Bad At GeoGuessr)
+# imbag
 Image Based Geolocation
 
 ## Purpose
