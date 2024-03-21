@@ -41,8 +41,8 @@ def load_data(csv_file, image_folder_path):
     return hf_dataset
 
 
-def load_google_data():
-    path = "/home/data_shares/geocv/concat_dataset.hf"
+def load_google_data(argument):
+    path = f"/home/data_shares/geocv/preprocessed_{argument}_dataset.hf"
     if os.path.exists(path):
         hf_dataset = datasets.load_from_disk(path)
         return hf_dataset
