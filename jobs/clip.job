@@ -3,11 +3,11 @@
 #SBATCH --job-name=clip-gpu-country    # Job name
 #SBATCH --output=outputs/%j.out      # Name of output file (%j expands to jobId)
 #SBATCH --cpus-per-task=16        # Schedule 8 cores (includes hyperthreading)
-#SBATCH --gres=gpu:a30:1              # Schedule a GPU, or more with gpu:2 etc
+#SBATCH --gres=gpu:1              # Schedule a GPU, or more with gpu:2 etc
 #SBATCH --gres-flags=enforce-binding                    # Get directoy connected cores to GPU
-#SBATCH --time=72:00:00          # Run time (hh:mm:ss) - run for one hour max
-#SBATCH --partition=brown  
-#SBATCH --reservation=desktop26  
+#SBATCH --time=71:59:59          # Run time (hh:mm:ss) - run for one hour max
+#SBATCH --partition=red  
+# #SBATCH --reservation=desktop26  
 module load singularity
 
-singularity run --nv --bind /home/data_shares/geocv:/home/data_shares/geocv /opt/itu/containers/pytorch/latest python src/clip.py Country
+singularity run --nv --bind /home/data_shares/geocv:/home/data_shares/geocv /opt/itu/containers/pytorch/latest python src/ImbagClip.py combined

@@ -1,11 +1,10 @@
 import torch
 import wandb
-import torch.nn as nn
 from tqdm import tqdm
 from transformers import CLIPModel
 
 class CLIPFineTuner:
-    def __init__(self, model_name="openai/clip-vit-large-patch14-336", batch_size=8, learning_rate=5e-5, epochs=4, argument="all"):
+    def __init__(self, model_name="openai/clip-vit-large-patch14-336", batch_size=8, learning_rate=5e-6, epochs=3, argument="all"):
         self.model_name = model_name
         self.batch_size = batch_size
         self.learning_rate = learning_rate
@@ -17,9 +16,6 @@ class CLIPFineTuner:
         if torch.cuda.is_available():
             self.device = torch.device("cuda")
             self.model = CLIPModel.from_pretrained(self.model_name).to(self.device)
-            if torch.cuda.device_count() > 1:
-                print(f"{torch.cuda.device_count()} GPUs are available...")
-                self.model = nn.DataParallel(self.model)
         else:
             self.device = torch.device("cpu")
             self.model = CLIPModel.from_pretrained(self.model_name).to(self.device)
@@ -31,7 +27,7 @@ class CLIPFineTuner:
         total_samples = 0
 
         with torch.no_grad():
-            for batch in dataloader:
+            for batch in tqdm(dataloader, desc="Evaluating"):
                 batch = {k: v.to(self.device) for k, v in batch.items()}
                 outputs = self.model(**batch, return_loss=True)
                 loss = outputs.loss
@@ -77,6 +73,8 @@ class CLIPFineTuner:
             print(f"Epoch {epoch+1} - Avg Validation Loss: {avg_val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
 
     def save_model(self):
-        path = f'models/{self.argument}clip_{self.learning_rate}_{self.batch_size}_{self.epochs}.pth'
+        # run id from wandb
+        run_id = wandb.run.name
+        path = f'models/{run_id}.pth'
         self.model.to('cpu')
         torch.save(self.model.state_dict(), path)

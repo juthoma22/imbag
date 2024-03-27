@@ -1,9 +1,14 @@
 from ClipFineTuner import CLIPFineTuner
-from transformers import CLIPProcessor
+from transformers import CLIPProcessor, CLIPTokenizer, CLIPImageProcessor
 from torch.utils.data import DataLoader
 import wandb
 from load_data import load_google_data
 from PIL import Image
+from datasets import load_dataset, concatenate_datasets
+import sys
+import copy
+import torch
+import random
 
 climate_zone_descriptions = {
     "Af": "Tropical rainforest climate",
@@ -40,7 +45,7 @@ climate_zone_descriptions = {
 
 
 class ImbagClip():
-    def __init__(self, mode="country_first"):
+    def __init__(self, batch_size=8, learning_rate=5e-6, epochs=3, mode="country_first"):
         """
         Take dataset configuration
         Load dataset in that configuration
@@ -52,10 +57,16 @@ class ImbagClip():
         mode (str): "country_first" for Country -> Climate -> Geocell, "climate_first" for Climate -> Country -> Geocell, "separate" for mixed in separate captions, "combined" for a single combined caption
         """
         self.mode = mode
-        self.model = CLIPFineTuner() # TODO: add parameters
-        self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14-336") 
+        self.batch_size = batch_size
+        self.learning_rate = learning_rate
+        self.epochs = epochs
+        print(f"Hyperparameters: {self.batch_size}, {self.learning_rate}, {self.epochs}")
+        self.model = CLIPFineTuner(batch_size=self.batch_size,learning_rate=self.learning_rate,epochs=self.epochs) # TODO: add parameters
+        self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14-336")
+        self.tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14-336")
+        self.image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14-336")
 
-        wandb.init() # add project name
+        wandb.init() # TODO: add project name
 
 
     def load_dataset(self):
@@ -67,7 +78,7 @@ class ImbagClip():
         Returns:
         dataset: dataset object
         """
-        dataset = load_google_data("Imbag")
+        dataset = load_google_data("imbag_clip_dataset.hf")
         self.train_dataset, self.validation_dataset = dataset['train'], dataset['validation']
 
 
@@ -81,37 +92,55 @@ class ImbagClip():
         Returns:
         batch: processed batch
         """
-        captions = []
-        images = []
 
         if argument == "Combined":
-            for country, climate, geocell, file_path in zip(examples["Country"], examples["Climate Zone"], examples["Geocell"], examples["file_path"]):
+            captions = []
+            images = []
+            for country, climate, geocell, file_path in zip(examples["Country"], examples["Climate Zone"], examples["Geocell"], examples["File Path"]):
                 # Load image using PIL
                 img = Image.open(file_path)
                 images.append(img)
 
-                caption = "this image was taken in " + country + ", specifically in Geocell " + geocell + " and in " + climate_zone_descriptions.get(climate).lower()
+                caption = "this image was taken in " + country + ", specifically in Geocell " + str(geocell) + " and in " + climate_zone_descriptions.get(climate).lower()
                 captions.append(caption)
+
+            return self.processor(text=captions, images=images, return_tensors="pt", padding="max_length", max_length=32, truncation=True)
 
         else:
-            for arg, file_path in zip(examples[argument], examples["file_path"]):
+            country_captions = []
+            climate_captions = []
+            geocell_captions = []
+            images = []
+            for country, climate, geocell, file_path in zip(examples["Country"], examples["Climate Zone"], examples["Geocell"], examples["File Path"]):
                 # Load image using PIL
                 img = Image.open(file_path)
                 images.append(img)
 
-                if argument == "Climate Zone":
-                    caption = "this image was taken in " + climate_zone_descriptions.get(arg).lower()
-                elif argument == "Country":
-                    caption = "this image was taken in " + arg
-                elif argument == "Geocell":
-                    caption = "this image was taken in Geocell " + arg
-                else:
-                    print("Invalid argument")
-                    continue
+                climate_caption = "this image was taken in " + climate_zone_descriptions.get(climate).lower()
 
-                captions.append(caption)
+                country_caption = "this image was taken in " + country
+                geocell_caption = "this image was taken in Geocell " + str(geocell)
 
-        return self.processor(text=captions, images=images, return_tensors="pt", padding="max_length", max_length=32, truncation=True)
+                country_captions.append(country_caption)
+                climate_captions.append(climate_caption)
+                geocell_captions.append(geocell_caption)
+
+            country_tok = self.tokenizer(country_captions, return_tensors="pt", padding="max_length", max_length=20, truncation=True)
+            climate_tok = self.tokenizer(climate_captions, return_tensors="pt", padding="max_length", max_length=20, truncation=True)
+            geocell_tok = self.tokenizer(geocell_captions, return_tensors="pt", padding="max_length", max_length=20, truncation=True)
+            images_proc = self.image_processor(images, return_tensors="pt")
+
+            images_captions = {
+                "Country Caption": country_tok["input_ids"],
+                "Country Attention Mask": country_tok["attention_mask"],
+                "Climate Zone Caption": climate_tok["input_ids"],
+                "Climate Zone Attention Mask": climate_tok["attention_mask"],
+                "Geocell Caption": geocell_tok["input_ids"],
+                "Geocell Attention Mask": geocell_tok["attention_mask"],
+                "pixel_values": images_proc["pixel_values"]
+            }
+
+            return images_captions   
 
         
     def preprocess(self):
@@ -121,57 +150,47 @@ class ImbagClip():
         Returns:
         dataset: dataset object
         """
+        dataset = load_google_data("imbag_clip_dataset.hf")
+        self.train_dataset, self.validation_dataset = dataset['train'], dataset['validation']
+        self.train_dataset = self.train_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(1000)])
+        self.validation_dataset = self.validation_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(200)])
+
+        workers = torch.cuda.device_count()
+
         if self.mode == "combined":
-            self.train_dataset = self.process_data(self.train_dataset, "Combined")
-            self.validation_dataset = self.process_data(self.validation_dataset, "Combined")
+            self.train_dataset = self.train_dataset.map(lambda x: self.process_data(x, "Combined"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
+            self.validation_dataset = self.validation_dataset.map(lambda x: self.process_data(x, "Combined"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
 
         else:
-            train_country_dataset = self.train_dataset.copy()
-            train_climate_dataset = self.train_dataset.copy()
-            train_geocell_dataset = self.train_dataset.copy()
+            self.train_dataset = self.train_dataset.map(lambda x: self.process_data(x, "Country"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
+            self.validation_dataset = self.validation_dataset.map(lambda x: self.process_data(x, "Country"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
 
-            validation_country_dataset = self.validation_dataset.copy()
-            validation_climate_dataset = self.validation_dataset.copy()
-            validation_geocell_dataset = self.validation_dataset.copy()
-
-            train_country_dataset = self.process_data(self.train_dataset, "Country")
-            validation_country_dataset = self.process_data(self.validation_dataset, "Country")
-
-            train_climate_dataset = self.process_data(self.train_dataset, "Climate Zone")
-            validation_climate_dataset = self.process_data(self.validation_dataset, "Climate Zone")
-
-            train_geocell_dataset = self.process_data(self.train_dataset, "Geocell")
-            validation_geocell_dataset = self.process_data(self.validation_dataset, "Geocell")
+            country_dataset_train = self.train_dataset.rename_column("Country Caption", "input_ids").rename_column("Country Attention Mask", "attention_mask").remove_columns(["Climate Zone Caption", "Climate Zone Attention Mask", "Geocell Caption", "Geocell Attention Mask"])
+            climate_dataset_train = self.train_dataset.rename_column("Climate Zone Caption", "input_ids").rename_column("Climate Zone Attention Mask", "attention_mask").remove_columns(["Country Caption", "Country Attention Mask", "Geocell Caption", "Geocell Attention Mask"])
+            geocell_dataset_train = self.train_dataset.rename_column("Geocell Caption", "input_ids").rename_column("Geocell Attention Mask", "attention_mask").remove_columns(["Country Caption", "Country Attention Mask", "Climate Zone Caption", "Climate Zone Attention Mask"])
+            
+            country_dataset_val = self.validation_dataset.rename_column("Country Caption", "input_ids").rename_column("Country Attention Mask", "attention_mask").remove_columns(["Climate Zone Caption", "Climate Zone Attention Mask", "Geocell Caption", "Geocell Attention Mask"])
+            climate_dataset_val = self.validation_dataset.rename_column("Climate Zone Caption", "input_ids").rename_column("Climate Zone Attention Mask", "attention_mask").remove_columns(["Country Caption", "Country Attention Mask", "Geocell Caption", "Geocell Attention Mask"])
+            geocell_dataset_val = self.validation_dataset.rename_column("Geocell Caption", "input_ids").rename_column("Geocell Attention Mask", "attention_mask").remove_columns(["Country Caption", "Country Attention Mask", "Climate Zone Caption", "Climate Zone Attention Mask"])
 
             if self.mode == "country_first":
-                self.train_dataset = train_country_dataset
-                self.validation_dataset = validation_country_dataset
-                self.train_dataset += train_climate_dataset
-                self.validation_dataset += validation_climate_dataset
-                self.train_dataset += train_geocell_dataset
-                self.validation_dataset += validation_geocell_dataset
+                self.train_dataset = concatenate_datasets([country_dataset_train, climate_dataset_train, geocell_dataset_train])
+                self.validation_dataset = concatenate_datasets([country_dataset_val, climate_dataset_val, geocell_dataset_val])
 
             elif self.mode == "climate_first":
-                self.train_dataset = train_climate_dataset
-                self.validation_dataset = validation_climate_dataset
-                self.train_dataset += train_country_dataset
-                self.validation_dataset += validation_country_dataset
-                self.train_dataset += train_geocell_dataset
-                self.validation_dataset += validation_geocell_dataset
-            
+                self.train_dataset = concatenate_datasets([climate_dataset_train, country_dataset_train, geocell_dataset_train])
+                self.validation_dataset = concatenate_datasets([climate_dataset_val, country_dataset_val, geocell_dataset_val])
+
             elif self.mode == "separate":
-                self.train_dataset = train_country_dataset
-                self.validation_dataset = validation_country_dataset
-                self.train_dataset += train_climate_dataset
-                self.validation_dataset += validation_climate_dataset
-                self.train_dataset += train_geocell_dataset
-                self.validation_dataset += validation_geocell_dataset
+                self.train_dataset = concatenate_datasets([country_dataset_train, climate_dataset_train, geocell_dataset_train])
+                self.validation_dataset = concatenate_datasets([country_dataset_val, climate_dataset_val, geocell_dataset_val])
 
-        self.train_dataset = self.processor(self.train_dataset, return_tensors="pt", padding=True)
-        self.validation_dataset = self.processor(self.validation_dataset, return_tensors="pt", padding=True)
+            elif self.mode == "geocell_only":
+                self.train_dataset = concatenate_datasets([geocell_dataset_train])
+                self.validation_dataset = concatenate_datasets([geocell_dataset_val])
 
 
-    def prepare_dataloader(self, batch_size=8):
+    def prepare_dataloader(self):
         """
         Prepare dataloader for training
         """
@@ -180,11 +199,13 @@ class ImbagClip():
         else:
             shuffle = False
 
+        batch_size = self.batch_size
+
         self.train_dataset.set_format(type='torch', columns=['input_ids', 'attention_mask', 'pixel_values'])
         self.validation_dataset.set_format(type='torch', columns=['input_ids', 'attention_mask', 'pixel_values'])
         
         self.train_loader = DataLoader(self.train_dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=True)
-        self.train_dataset = DataLoader(self.train_dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=True)
+        self.validation_loader = DataLoader(self.validation_dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=True)
 
 
     def train(self):
@@ -199,7 +220,10 @@ class ImbagClip():
 
 
 if __name__ == "__main__":
-    imbag_clip = ImbagClip()
+    argument = sys.argv[1]
+    print(f"Running ImbagClip with {argument}...")
+    imbag_clip = ImbagClip(batch_size=8, mode=argument)
     imbag_clip.load_dataset()
     imbag_clip.preprocess()
+    imbag_clip.prepare_dataloader()
     imbag_clip.train()

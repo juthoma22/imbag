@@ -42,7 +42,7 @@ def load_data(csv_file, image_folder_path):
 
 
 def load_google_data(argument):
-    path = f"/home/data_shares/geocv/preprocessed_{argument}_dataset.hf"
+    path = f"/home/data_shares/geocv/{argument}"
     if os.path.exists(path):
         hf_dataset = datasets.load_from_disk(path)
         return hf_dataset
