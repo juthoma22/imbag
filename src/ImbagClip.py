@@ -93,7 +93,7 @@ class ImbagClip():
         batch: processed batch
         """
 
-        if argument == "Combined":
+        if argument == "combined":
             captions = []
             images = []
             for country, climate, geocell, file_path in zip(examples["Country"], examples["Climate Zone"], examples["Geocell"], examples["File Path"]):
@@ -101,7 +101,30 @@ class ImbagClip():
                 img = Image.open(file_path)
                 images.append(img)
 
-                caption = "this image was taken in " + country + ", specifically in Geocell " + str(geocell) + " and in " + climate_zone_descriptions.get(climate).lower()
+                caption = "this image was taken in " + country + " within geocell " + str(geocell) + " in " + climate_zone_descriptions.get(climate).lower()
+                captions.append(caption)
+
+            return self.processor(text=captions, images=images, return_tensors="pt", padding="max_length", max_length=32, truncation=True)
+        
+        if argument == "combined_mixed":
+            captions = []
+            images = []
+            for country, climate, geocell, file_path in zip(examples["Country"], examples["Climate Zone"], examples["Geocell"], examples["File Path"]):
+                # Load image using PIL
+                img = Image.open(file_path)
+                images.append(img)
+
+                beginning = "this image was taken"
+                country = f" in {country}"
+                geocell = f" within geocell {str(geocell)}"
+                climate = f" in {climate_zone_descriptions.get(climate).lower()}"
+                random_order = [country, geocell, climate]
+
+                random.shuffle(random_order)
+
+                caption = [beginning] + random_order
+
+                caption = "".join(caption)
                 captions.append(caption)
 
             return self.processor(text=captions, images=images, return_tensors="pt", padding="max_length", max_length=32, truncation=True)
@@ -119,7 +142,7 @@ class ImbagClip():
                 climate_caption = "this image was taken in " + climate_zone_descriptions.get(climate).lower()
 
                 country_caption = "this image was taken in " + country
-                geocell_caption = "this image was taken in Geocell " + str(geocell)
+                geocell_caption = "this image was taken within geocell " + str(geocell)
 
                 country_captions.append(country_caption)
                 climate_captions.append(climate_caption)
@@ -152,14 +175,18 @@ class ImbagClip():
         """
         dataset = load_google_data("imbag_clip_dataset.hf")
         self.train_dataset, self.validation_dataset = dataset['train'], dataset['validation']
-        self.train_dataset = self.train_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(1000)])
-        self.validation_dataset = self.validation_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(200)])
+        # self.train_dataset = self.train_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(1000)])
+        # self.validation_dataset = self.validation_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(200)])
 
         workers = torch.cuda.device_count()
 
         if self.mode == "combined":
-            self.train_dataset = self.train_dataset.map(lambda x: self.process_data(x, "Combined"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
-            self.validation_dataset = self.validation_dataset.map(lambda x: self.process_data(x, "Combined"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
+            self.train_dataset = self.train_dataset.map(lambda x: self.process_data(x, "combined"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
+            self.validation_dataset = self.validation_dataset.map(lambda x: self.process_data(x, "combined"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
+
+        elif self.mode == "combined_mixed":
+            self.train_dataset = self.train_dataset.map(lambda x: self.process_data(x, "combined_mixed"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
+            self.validation_dataset = self.validation_dataset.map(lambda x: self.process_data(x, "combined_mixed"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
 
         else:
             self.train_dataset = self.train_dataset.map(lambda x: self.process_data(x, "Country"), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
@@ -220,8 +247,9 @@ class ImbagClip():
 
 if __name__ == "__main__":
     argument = sys.argv[1]
+    epochs = int(sys.argv[2])
     print(f"Running ImbagClip with {argument}...")
-    imbag_clip = ImbagClip(batch_size=8, mode=argument)
+    imbag_clip = ImbagClip(epochs=epochs, mode=argument)
     imbag_clip.load_dataset()
     imbag_clip.preprocess()
     imbag_clip.prepare_dataloader()
