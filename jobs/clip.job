@@ -10,4 +10,4 @@
 # #SBATCH --reservation=desktop26  
 module load singularity
 
-singularity run --nv --bind /home/data_shares/geocv:/home/data_shares/geocv /opt/itu/containers/pytorch/latest python src/ImbagClip.py combined
+singularity run --nv --bind /home/data_shares/geocv:/home/data_shares/geocv /opt/itu/containers/pytorch/latest python src/ImbagClip.py combined 3
