@@ -216,7 +216,6 @@ class ImbagClip():
         model: trained model
         """
         self.model.train(self.train_loader, self.validation_loader)
-        self.model.save_model()
 
 
 if __name__ == "__main__":

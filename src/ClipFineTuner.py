@@ -72,9 +72,11 @@ class CLIPFineTuner:
             })
             print(f"Epoch {epoch+1} - Avg Validation Loss: {avg_val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
 
-    def save_model(self):
         # run id from wandb
         run_id = wandb.run.name
-        path = f'models/{run_id}.pth'
+        path = f'models/{run_id}_{epoch}.pth'
+        self.save_model(path)
+
+    def save_model(self, path):
         self.model.to('cpu')
         torch.save(self.model.state_dict(), path)
