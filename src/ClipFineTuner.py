@@ -72,10 +72,11 @@ class CLIPFineTuner:
             })
             print(f"Epoch {epoch+1} - Avg Validation Loss: {avg_val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}")
 
-        # run id from wandb
-        run_id = wandb.run.name
-        path = f'models/{run_id}_{epoch}.pth'
-        self.save_model(path)
+            # run id from wandb
+            run_id = wandb.run.name
+            path = f'models/{run_id}_{epoch}.pth'
+            self.save_model(path)
+            self.model.to(self.device)
 
     def save_model(self, path):
         self.model.to('cpu')
