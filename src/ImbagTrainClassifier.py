@@ -11,6 +11,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 import numpy as np
 import torch
+import wandb
 
 def load_embeddings(parquet_path):
     # Load embeddings and IDs from a Parquet file
@@ -140,21 +141,21 @@ class ImbagClassifier:
         # Aggregate over the batch
         return torch.mean(weighted_distances)
 
-    def train_classifier(self, embeddings_path, num_epochs=10, lr=1e-3):
-
+    def train_classifier(self, embeddings_path, batch_size=16, num_epochs=10, lr=1e-3):
+        config = wandb.config
         embeddings, ids = load_embeddings(embeddings_path)
         embeddings = embeddings.astype(np.float32)  # Convert embeddings to float32
         # Load the original dataset
         dataset = load_google_data("imbag_clip_dataset.hf")
-        train_dataset = dataset['train'].select(range(10))
-        eval_dataset = dataset['validation'].select(range(10))
+        train_dataset = dataset['train']
+        eval_dataset = dataset['validation']
 
         # Wrap with EmbeddingsDataset
         train_dataset = EmbeddingsDataset(train_dataset, embeddings, ids)
         eval_dataset = EmbeddingsDataset(eval_dataset, embeddings, ids)
 
-        train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-        eval_loader = DataLoader(eval_dataset, batch_size=16, shuffle=False)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
 
         optimizer = torch.optim.Adam(self.classifier.parameters(), lr=lr)
     
@@ -165,10 +166,6 @@ class ImbagClassifier:
             for batch in progress_bar:
                 embedding = batch["embedding"].to(self.device)
                 labels = batch["Geocell"].to(self.device)
-                idxs = batch["id"]
-                # print(embedding)
-                # print(labels)
-                # print(idxs)
                 outputs = self.classifier(embedding)
                 loss = self.haversine_loss(outputs, labels)
                 optimizer.zero_grad()
@@ -177,9 +174,11 @@ class ImbagClassifier:
 
                 train_epoch_loss += loss.item()
                 progress_bar.set_postfix(loss=loss.item())
+                wandb.log({"train_loss": loss.item()})
+            avg_train_loss = train_epoch_loss / len(train_loader)
             
-            print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {train_epoch_loss / len(train_loader)}')
-            
+            print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss}')
+            wandb.log({"avg_train_loss": avg_train_loss})
             # Evaluation
             self.classifier.eval()
             with torch.no_grad():
@@ -193,22 +192,48 @@ class ImbagClassifier:
                     outputs = self.classifier(embedding)
                     loss = self.haversine_loss(outputs, labels)
                     eval_epoch_loss += loss.item()
+                    wandb.log({"eval_loss": loss.item()})
                     
                 print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Loss: {eval_epoch_loss / len(eval_loader)}')
+                wandb.log({"avg_eval_loss": eval_epoch_loss/len(eval_loader)})
+
 
 def main():
+    wandb.init()
+    config = wandb.config  # Access the config object
     dataset_path = '/home/data_shares/geocv/geocells.csv'
-    embeddings_path = 'data/zesty-forest-48_1_embeddings_with_ids.parquet'  # Update this path
+    embeddings_path = 'notebooks/zesty-forest-48_1_embeddings_with_ids.parquet'
 
     classifier = ImbagClassifier(dataset_path=dataset_path)
-    num_epochs = 1
-    learning_rate = 1e-3
 
-    classifier.train_classifier(embeddings_path=embeddings_path, num_epochs=num_epochs, lr=learning_rate)
+    classifier.train_classifier(embeddings_path=embeddings_path, batch_size=config.batch_size, num_epochs=config.epochs, lr=config.learning_rate)
 
     print("Training complete.")
 
-
+def sweep():
+    sweep_config = {
+    'method': 'bayes',
+    'metric': {
+            'name': 'eval_loss',
+            'goal': 'minimize'   
+        },
+    'parameters': {
+        'learning_rate': {
+            'min': 1e-7,
+            'max': 1e-3
+            },
+        'epochs': {
+            'values': [3, 4, 5]
+            },
+        'batch_size': {
+            'values': [16, 32, 64, 128]
+            }
+        }
+    }
+    sweep_id = wandb.sweep(sweep_config, project=f"ImbagClassifier")
+    return sweep_id
 
 if __name__ == "__main__":
-    main()
+    sweep_id = sweep()
+    
+    wandb.agent(sweep_id, function=main)
