@@ -228,7 +228,7 @@ def main():
     wandb.init()
     config = wandb.config  # Access the config object
     dataset_path = '/home/data_shares/geocv/geocells.csv'
-    embeddings_path = 'notebooks/zesty-forest-48_1_embeddings_with_ids.parquet'
+    embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_ids.parquet'
 
     classifier = ImbagClassifier(dataset_path=dataset_path, dropout=config.dropout)
 
