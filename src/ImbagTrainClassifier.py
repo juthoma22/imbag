@@ -42,12 +42,12 @@ class EmbeddingsDataset(Dataset):
 
 
 class FCNNClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size1, hidden_size2, num_classes):
+    def __init__(self, input_size, hidden_size1, hidden_size2, num_classes, dropout):
         super(FCNNClassifier, self).__init__()
         self.layer1 = nn.Linear(input_size, hidden_size1)
         self.batchnorm1 = nn.BatchNorm1d(hidden_size1)
         self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(dropout)
         self.layer2 = nn.Linear(hidden_size1, hidden_size2)
         self.batchnorm2 = nn.BatchNorm1d(hidden_size2)
         self.output_layer = nn.Linear(hidden_size2, num_classes)
@@ -65,14 +65,38 @@ class FCNNClassifier(nn.Module):
         return out
 
 
+class MLPClassifier(nn.Module):
+    def __init__(self, input_size, hidden_sizes, num_classes, dropout_rate):
+        super(MLPClassifier, self).__init__()
+        layers = [nn.Linear(input_size, hidden_sizes[0]), nn.ReLU(), nn.Dropout(dropout_rate)]
+
+        # Adding hidden layers dynamically based on the hidden_sizes list
+        for i in range(1, len(hidden_sizes)):
+            layers.append(nn.Linear(hidden_sizes[i-1], hidden_sizes[i]))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(dropout_rate))
+        
+        # Output layer
+        layers.append(nn.Linear(hidden_sizes[-1], num_classes))
+        
+        # ModuleList registers all the layers properly
+        self.layers = nn.ModuleList(layers)
+        
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+
 class ImbagClassifier:
-    def __init__(self, dataset_path='/home/data_shares/geocv/geocells.csv'):
+    def __init__(self, dataset_path='/home/data_shares/geocv/geocells.csv', dropout=0.5):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.id_to_latlon = self.load_geocells(path=dataset_path)
         latlon_list = [[value['lat'], value['lon']] for value in self.id_to_latlon.values()]
         self.all_latlons_tensor = torch.tensor(latlon_list, dtype=torch.float32, device=self.device)
 
-        self.classifier = FCNNClassifier(768, 1024, 512, 1093).to(self.device)
+        self.classifier = FCNNClassifier(768, 876, 964, 1093, dropout).to(self.device)
+        # self.classifier = MLPClassifier(768, [876, 964], 1093, dropout).to(self.device)
 
     def load_geocells(self, path):
         df = pd.read_csv(path)
@@ -130,7 +154,6 @@ class ImbagClassifier:
 
         # Create a PyTorch tensor from the numpy array and move it to the correct device
         target_latlons = torch.tensor(target_latlons_array, device=outputs.device)  # Shape [batch_size, 2]
-
 
         # Calculate distances from all classes to the target, shape [batch_size, num_classes]
         all_distances = torch.stack([self.calculate_haversine_distance(self.all_latlons_tensor, target_latlon.repeat(self.all_latlons_tensor.shape[0], 1)) for target_latlon in target_latlons])
@@ -197,6 +220,9 @@ class ImbagClassifier:
                 print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Loss: {eval_epoch_loss / len(eval_loader)}')
                 wandb.log({"avg_eval_loss": eval_epoch_loss/len(eval_loader)})
 
+    def save_model(self, path):
+        self.classifier.to('cpu')
+        torch.save(self.classifier.state_dict(), path)
 
 def main():
     wandb.init()
@@ -204,29 +230,32 @@ def main():
     dataset_path = '/home/data_shares/geocv/geocells.csv'
     embeddings_path = 'notebooks/zesty-forest-48_1_embeddings_with_ids.parquet'
 
-    classifier = ImbagClassifier(dataset_path=dataset_path)
+    classifier = ImbagClassifier(dataset_path=dataset_path, dropout=config.dropout)
 
     classifier.train_classifier(embeddings_path=embeddings_path, batch_size=config.batch_size, num_epochs=config.epochs, lr=config.learning_rate)
-
+    classifier.save_model(f"models/cls_{wandb.run.name}.pth")
     print("Training complete.")
 
 def sweep():
     sweep_config = {
     'method': 'bayes',
     'metric': {
-            'name': 'eval_loss',
+            'name': 'avg_eval_loss',
             'goal': 'minimize'   
         },
     'parameters': {
         'learning_rate': {
-            'min': 1e-7,
-            'max': 1e-3
+            'min': 1e-9,
+            'max': 1e-5
             },
         'epochs': {
             'values': [3, 4, 5]
             },
         'batch_size': {
-            'values': [16, 32, 64, 128]
+            'values': [16, 32, 64, 128, 265, 512]
+            },
+        'dropout': {
+            'values': [0.1, 0.2, 0.3, 0.4, 0.5]
             }
         }
     }
