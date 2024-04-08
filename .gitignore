@@ -1,0 +1,13 @@
+outputs/*
+
+models/*
+
+wandb/*
+
+*.pyc
+
+*.parquet
+
+*.out
+
+*.png
