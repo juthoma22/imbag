@@ -34,8 +34,6 @@ def train_model():
         argument=argument
     )
 
-    print("Loading dataset...")
-    dataset = load_google_data(argument)
     train_dataset, validation_dataset = dataset['train'], dataset['validation']
 
     print("Loading dataloader...")
@@ -50,16 +48,9 @@ def sweep():
         "method": "bayes",
         "metric": {"name": "val_loss", "goal": "minimize"},
         "parameters": {
-            "learning_rate": {"min": 1e-9, "max": 1e-5},
-            "batch_size": {"values": [8, 16, 32]},
+            "learning_rate": {"min": 1e-7, "max": 1e-6},
+            "batch_size": {"values": [8]},
             "epochs": {"values": [2, 3, 4]}
-        },
-        "early_terminate": {
-            "type": "hyperband",
-            "s": 2,  # defines the reduction factor
-            "eta": 3,  # defines the proportion of configurations that are discarded in each iteration
-            "min_iter": 2,  # maximum number of iterations to run
-            "max_iter": 6
         }
     }
 
@@ -68,4 +59,7 @@ def sweep():
 
 if __name__ == "__main__":
     sweep_id = sweep()
+    
+    print("Loading dataset...")
+    dataset = load_google_data(argument)
     wandb.agent(sweep_id, function=train_model)

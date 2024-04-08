@@ -87,6 +87,31 @@ class MLPClassifier(nn.Module):
             x = layer(x)
         return x
 
+class GeographicalClassifier(nn.Module):
+    def __init__(self, embedding_dim=768, hidden_dims=[512, 256, 128], num_classes=1093, dropout_rate=0.5):
+        super(GeographicalClassifier, self).__init__()
+        
+        # Dynamically create layers based on the hidden_dims list
+        self.layers = nn.ModuleList()
+        input_dim = embedding_dim
+        for hidden_dim in hidden_dims:
+            self.layers.append(nn.Linear(input_dim, hidden_dim))
+            self.layers.append(nn.ReLU(inplace=True))
+            self.layers.append(nn.BatchNorm1d(hidden_dim))
+            self.layers.append(nn.Dropout(dropout_rate))
+            input_dim = hidden_dim  # Set next layer's input size
+        
+        # Output layer
+        self.output_layer = nn.Linear(hidden_dims[-1], num_classes)
+        
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        
+        # Apply output layer
+        x = self.output_layer(x)
+        return x
+
 
 class ImbagClassifier:
     def __init__(self, dataset_path='/home/data_shares/geocv/geocells.csv', dropout=0.5):
@@ -95,8 +120,9 @@ class ImbagClassifier:
         latlon_list = [[value['lat'], value['lon']] for value in self.id_to_latlon.values()]
         self.all_latlons_tensor = torch.tensor(latlon_list, dtype=torch.float32, device=self.device)
 
-        self.classifier = FCNNClassifier(768, 876, 964, 1093, dropout).to(self.device)
+        # self.classifier = GeographicalClassifier(embedding_dim=768, hidden_dims=[840, 960, 1080], num_classes=1093, dropout_rate=dropout).to(self.device)
         # self.classifier = MLPClassifier(768, [876, 964], 1093, dropout).to(self.device)
+        self.classifier = FCNNClassifier(867, 964, 1040, 1093, dropout).to(self.device)
 
     def load_geocells(self, path):
         df = pd.read_csv(path)
@@ -157,10 +183,10 @@ class ImbagClassifier:
 
         # Calculate distances from all classes to the target, shape [batch_size, num_classes]
         all_distances = torch.stack([self.calculate_haversine_distance(self.all_latlons_tensor, target_latlon.repeat(self.all_latlons_tensor.shape[0], 1)) for target_latlon in target_latlons])
-        
+
         # Weight distances by probabilities and sum across classes for each item in batch
         weighted_distances = torch.sum(all_distances * probabilities, dim=1)
-        
+
         # Aggregate over the batch
         return torch.mean(weighted_distances)
 
@@ -180,7 +206,7 @@ class ImbagClassifier:
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
 
-        optimizer = torch.optim.Adam(self.classifier.parameters(), lr=lr)
+        optimizer = torch.optim.AdamW(self.classifier.parameters(), lr=lr)
     
         for epoch in range(num_epochs):
             self.classifier.train()
@@ -222,13 +248,13 @@ class ImbagClassifier:
 
     def save_model(self, path):
         self.classifier.to('cpu')
-        torch.save(self.classifier.state_dict(), path)
+        torch.save(self.classifier, path)
 
 def main():
     wandb.init()
     config = wandb.config  # Access the config object
     dataset_path = '/home/data_shares/geocv/geocells.csv'
-    embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_ids.parquet'
+    embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_countries.parquet'
 
     classifier = ImbagClassifier(dataset_path=dataset_path, dropout=config.dropout)
 
@@ -245,21 +271,21 @@ def sweep():
         },
     'parameters': {
         'learning_rate': {
-            'min': 1e-9,
-            'max': 1e-5
+            'min': 1e-10,
+            'max': 1e-3
             },
         'epochs': {
-            'values': [3, 4, 5]
+            'values': [4, 5, 6]
             },
         'batch_size': {
-            'values': [16, 32, 64, 128, 265, 512]
+            'values': [16, 32]
             },
         'dropout': {
-            'values': [0.1, 0.2, 0.3, 0.4, 0.5]
+            'values': [0.2, 0.3, 0.4, 0,5]
             }
         }
     }
-    sweep_id = wandb.sweep(sweep_config, project=f"ImbagClassifier")
+    sweep_id = wandb.sweep(sweep_config, project=f"ImbagClassifierTEST")
     return sweep_id
 
 if __name__ == "__main__":

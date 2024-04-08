@@ -7,14 +7,14 @@ import os
 from tqdm import tqdm
 
 # Load CSV metadata
-metadata_path = '/home/data_shares/geocv/concat_google_image_metadata.csv'
+metadata_path = '/home/data_shares/geocv/imbag_metadata.csv'
 df = pd.read_csv(metadata_path)
 print(df.head())
-df["file_name"] = df["Index"].apply(lambda x: f"google_{x}.jpg")
+df["File Path"] = df["Photo ID"].apply(lambda x: f"google_{x}.jpg")
 # Add file path to DataFrame
 print(df.head())
-df["file_path"] = df["file_name"].apply(lambda x: os.path.join('/home/data_shares/geocv/concat_google_images/', x))
-df = df[["file_path", "Climate Zone", "Country"]]
+df["File Path"] = df["File Path"].apply(lambda x: os.path.join('/home/data_shares/geocv/concat_google_images/', x))
+df = df[["File Path", "Climate Zone", "Country", "Geocell"]]
 print(df.head())
 # Split DataFrame into training and validation sets
 train_df, val_df = train_test_split(df, test_size=0.2, random_state=42)
@@ -25,8 +25,8 @@ print(val_df.head())
 train_dataset = Dataset.from_pandas(train_df)
 val_dataset = Dataset.from_pandas(val_df)
 
-# print(train_dataset)
-# print(val_dataset)
+print(train_dataset)
+print(val_dataset)
 # # Load images
 
 # def load_images(batch):
@@ -52,6 +52,6 @@ split_datasets = DatasetDict({
 
 print(split_datasets)
 
-split_datasets.save_to_disk('/home/data_shares/geocv/concat_dataset.hf')
+split_datasets.save_to_disk('/home/data_shares/geocv/imbag_clip_dataset.hf')
 
 print("Datasets split and saved successfully!")
