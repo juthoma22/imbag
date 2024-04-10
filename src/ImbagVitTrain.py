@@ -1,4 +1,5 @@
 from ClipFineTuner import CLIPFineTuner
+import transformers
 from transformers import CLIPProcessor, CLIPModel, CLIPTokenizer, CLIPImageProcessor, ViTImageProcessor
 from torch.utils.data import DataLoader
 import wandb
@@ -29,7 +30,6 @@ def calculate_accuracy(logits, labels):
     """
     # Convert logits to predicted class indices
     preds = torch.argmax(logits, dim=1)
-    
     # Calculate the number of correct predictions
     correct_predictions = torch.sum(preds == labels)
     
@@ -50,7 +50,7 @@ class ViTClassifierHead(nn.Module):
 
 
 class ImbagViT():
-    def __init__(self, model_path, batch_size=8, learning_rate=1e-3, epochs=5):
+    def __init__(self, model_path, batch_size=8, learning_rate=1e-5, epochs=5):
         """
         Take dataset configuration
         Load dataset in that configuration
@@ -67,10 +67,12 @@ class ImbagViT():
         print(f"Hyperparameters: {self.batch_size}, {self.learning_rate}, {self.epochs}")
         model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14-336")
         model.load_state_dict(torch.load(model_path))
-        model.eval()
         vision_model = model.vision_model
         vision_model.classifier_head = ViTClassifierHead(vision_model.config.hidden_size, 1093)
         self.model = vision_model
+        # make whole model trainable
+        for param in self.model.parameters():
+            param.requires_grad = True
         self.image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14-336")
 
         if torch.cuda.is_available():
@@ -79,13 +81,14 @@ class ImbagViT():
         else:
             self.device = torch.device("cpu")
             self.model = self.model.to(self.device)
-        wandb.init() # TODO: add project name
+        # wandb.init() # TODO: add project name
 
         
         self.id_to_latlon = self.load_geocells('/home/data_shares/geocv/geocells.csv')
         latlon_list = [[value['lat'], value['lon']] for value in self.id_to_latlon.values()]
         self.all_latlons_tensor = torch.tensor(latlon_list, dtype=torch.float32, device=self.device)
         self.loss_fn = self.haversine_loss
+        self.loss_fn = nn.CrossEntropyLoss()
 
     def process_data(self, examples):
         """
@@ -118,8 +121,8 @@ class ImbagViT():
         """
         dataset = load_google_data("imbag_clip_dataset.hf")
         self.train_dataset, self.validation_dataset = dataset['train'], dataset['validation']
-        # self.train_dataset = self.train_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(10)])
-        # self.validation_dataset = self.validation_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(10)])
+        # self.train_dataset = self.train_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(2)])
+        # self.validation_dataset = self.validation_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(2)])
 
         self.train_dataset = self.train_dataset.map(lambda x: self.process_data(x), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
         self.validation_dataset = self.validation_dataset.map(lambda x: self.process_data(x), batched=True, batch_size=500, remove_columns=["File Path", "Climate Zone", "Country", "Geocell"])
@@ -164,7 +167,7 @@ class ImbagViT():
         total_items = 0
 
         with torch.no_grad():  # No need to track gradients during evaluation
-            for batch in tqdm(self.train_loader, desc=f"Evaluating:.."):
+            for batch in tqdm(self.validation_loader, desc=f"Evaluating:.."):
                 # print(batch)
                 batch = {k: v.to(self.device) for k, v in batch.items()}
                 labels = batch["labels"]
@@ -264,6 +267,11 @@ class ImbagViT():
                 batch_accuracy = calculate_accuracy(logits, labels)
                 total_accuracy += batch_accuracy
 
+                wandb.log({
+                    "batch_accuracy": batch_accuracy,
+                    "batch_loss": loss.item()
+                })
+
             average_accuracy = total_accuracy / len(self.train_loader)
             avg_train_loss = total_train_loss / len(self.train_loader)
             val_loss, val_accuracy = self.evaluate()
@@ -294,7 +302,7 @@ class ImbagViT():
 
 if __name__ == "__main__":
     epochs = int(sys.argv[1])
-    print(f"Running ImbagClip with...")
+    print(f"Running ViT Classification Traingin...")
     imbag_clip = ImbagViT(model_path="/home/jthr/repos/imbag/models/zesty-forest-48_1.pth",epochs=epochs)
     imbag_clip.preprocess()
     imbag_clip.prepare_dataloader()

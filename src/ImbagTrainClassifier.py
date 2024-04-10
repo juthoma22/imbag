@@ -13,6 +13,29 @@ import numpy as np
 import torch
 import wandb
 
+
+def calculate_accuracy(logits, labels):
+    """
+    Calculate accuracy of predictions.
+
+    Parameters:
+    - logits (torch.Tensor): The logits output by the model. Shape: [batch_size, num_classes].
+    - labels (torch.Tensor): The true labels. Shape: [batch_size].
+
+    Returns:
+    - accuracy (float): The accuracy of predictions as a percentage.
+    """
+    # Convert logits to predicted class indices
+    preds = torch.argmax(logits, dim=1)
+    # Calculate the number of correct predictions
+    correct_predictions = torch.sum(preds == labels)
+    
+    # Calculate accuracy
+    accuracy = (correct_predictions / labels.size(0)) * 100.0  # Convert to percentage
+    
+    return accuracy.item()
+
+
 def load_embeddings(parquet_path):
     # Load embeddings and IDs from a Parquet file
     embeddings_df = pd.read_parquet(parquet_path)
@@ -114,15 +137,17 @@ class GeographicalClassifier(nn.Module):
 
 
 class ImbagClassifier:
-    def __init__(self, dataset_path='/home/data_shares/geocv/geocells.csv', dropout=0.5):
+    def __init__(self, dataset_path='/home/data_shares/geocv/geocells.csv', dropout=0.5, hidden_layers=[512, 256, 128]):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.id_to_latlon = self.load_geocells(path=dataset_path)
         latlon_list = [[value['lat'], value['lon']] for value in self.id_to_latlon.values()]
         self.all_latlons_tensor = torch.tensor(latlon_list, dtype=torch.float32, device=self.device)
+        self.loss_fn = self.haversine_loss
+        self.loss_fn = nn.CrossEntropyLoss()
 
-        # self.classifier = GeographicalClassifier(embedding_dim=768, hidden_dims=[840, 960, 1080], num_classes=1093, dropout_rate=dropout).to(self.device)
+        self.classifier = GeographicalClassifier(embedding_dim=768, hidden_dims=hidden_layers, num_classes=1093, dropout_rate=dropout).to(self.device)
         # self.classifier = MLPClassifier(768, [876, 964], 1093, dropout).to(self.device)
-        self.classifier = FCNNClassifier(867, 964, 1040, 1093, dropout).to(self.device)
+        # self.classifier = FCNNClassifier(867, 964, 1040, 1093, dropout).to(self.device)
 
     def load_geocells(self, path):
         df = pd.read_csv(path)
@@ -211,27 +236,38 @@ class ImbagClassifier:
         for epoch in range(num_epochs):
             self.classifier.train()
             train_epoch_loss = 0.0
+            total_accuracy = 0
             progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}', leave=True)
             for batch in progress_bar:
                 embedding = batch["embedding"].to(self.device)
                 labels = batch["Geocell"].to(self.device)
                 outputs = self.classifier(embedding)
-                loss = self.haversine_loss(outputs, labels)
+                # pred = torch.argmax(outputs, dim=1)
+                loss = self.loss_fn(outputs, labels)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
+                accuracy = calculate_accuracy(outputs, labels)
+                total_accuracy += accuracy
+
                 train_epoch_loss += loss.item()
                 progress_bar.set_postfix(loss=loss.item())
-                wandb.log({"train_loss": loss.item()})
+                # wandb.log({"batch_loss": loss.item()})
+                # wandb.log({"batch_accuracy": accuracy})
+
             avg_train_loss = train_epoch_loss / len(train_loader)
+            average_accuracy = total_accuracy / len(train_loader)
             
             print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss}')
+            print(f'Epoch [{epoch+1}/{num_epochs}], Training Accuracy: {average_accuracy}')
             wandb.log({"avg_train_loss": avg_train_loss})
+            wandb.log({"avg_accuracy": average_accuracy})
             # Evaluation
             self.classifier.eval()
             with torch.no_grad():
                 eval_epoch_loss = 0.0
+                eval_epoch_accuracy = 0.0
                 
                 progress_bar = tqdm(eval_loader, desc=f'Epoch {epoch+1}/{num_epochs}', leave=True)
                 for batch in progress_bar:
@@ -239,12 +275,17 @@ class ImbagClassifier:
                     labels = batch["Geocell"].to(self.device)
                     idxs = batch["id"]
                     outputs = self.classifier(embedding)
-                    loss = self.haversine_loss(outputs, labels)
+                    loss = self.loss_fn(outputs, labels)
                     eval_epoch_loss += loss.item()
-                    wandb.log({"eval_loss": loss.item()})
+                    eval_accuracy = calculate_accuracy(outputs, labels)
+                    eval_epoch_accuracy += eval_accuracy
+                    # wandb.log({"eval_loss": loss.item()})
+                    # wandb.log({"eval_accuracy": eval_accuracy})
                     
                 print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Loss: {eval_epoch_loss / len(eval_loader)}')
+                print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Accuracy: {eval_epoch_accuracy / len(eval_loader)}')
                 wandb.log({"avg_eval_loss": eval_epoch_loss/len(eval_loader)})
+                wandb.log({"avg_eval_accuracy": eval_epoch_accuracy/len(eval_loader)})
 
     def save_model(self, path):
         self.classifier.to('cpu')
@@ -254,9 +295,10 @@ def main():
     wandb.init()
     config = wandb.config  # Access the config object
     dataset_path = '/home/data_shares/geocv/geocells.csv'
-    embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_countries.parquet'
+    embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_ids.parquet'
+    print(embeddings_path)
 
-    classifier = ImbagClassifier(dataset_path=dataset_path, dropout=config.dropout)
+    classifier = ImbagClassifier(dataset_path=dataset_path, dropout=config.dropout, hidden_layers=config.hidden_layers)
 
     classifier.train_classifier(embeddings_path=embeddings_path, batch_size=config.batch_size, num_epochs=config.epochs, lr=config.learning_rate)
     classifier.save_model(f"models/cls_{wandb.run.name}.pth")
@@ -275,13 +317,16 @@ def sweep():
             'max': 1e-3
             },
         'epochs': {
-            'values': [4, 5, 6]
+            'values': [6, 8, 10, 12, 14, 16, 18, 20]
             },
         'batch_size': {
-            'values': [16, 32]
+            'values': [16, 32, 64]
             },
         'dropout': {
-            'values': [0.2, 0.3, 0.4, 0,5]
+            'values': [0.2, 0.3, 0.4, 0.5]
+            },
+        'hidden_layers': {
+            'values': [[840, 960, 1080], [960, 1080], [960]]
             }
         }
     }
