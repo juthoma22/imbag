@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import numpy as np
 import torch
 import wandb
+from torch import exp
 
 
 def calculate_top_k_accuracy(logits, labels, k=1):
@@ -39,6 +40,36 @@ def calculate_top_k_accuracy(logits, labels, k=1):
     accuracy = (correct_predictions / labels.size(0)) * 100.0  # Convert to percentage
     
     return accuracy
+
+def calculate_scores_and_distances(preds, distances):
+    """
+    Calculate total score and total distance efficiently.
+    
+    Parameters:
+    - preds (torch.Tensor): Tensor of predicted indices. Shape: [batch_size].
+    - distances (torch.Tensor): Tensor of distances. Shape: [batch_size, num_classes].
+    
+    Returns:
+    - total_score (float)
+    - total_distance (float)
+    - average_score (float)
+    - average_distance (float)
+    """
+    preds = preds.argmax(dim=1)
+    # Gather distances using predicted indices
+    gathered_distances = distances.gather(1, preds.unsqueeze(1)).squeeze()
+
+    # Calculate scores based on distances
+    scores = 5000 * exp(-gathered_distances / 1492.7)
+
+    # Calculate totals and averages
+    total_score = scores.sum().item()
+    total_distance = gathered_distances.sum().item()
+    average_score = total_score / len(preds)
+    average_distance = total_distance / len(preds)
+
+    return average_score, average_distance
+
 
 
 def load_embeddings(parquet_path):
@@ -248,6 +279,8 @@ class ImbagClassifier:
             train_epoch_loss = 0.0
             total_accuracy = 0
             total_top_k_accuracy = 0
+            total_score = 0
+            total_dist = 0
             progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}', leave=True)
             for batch in progress_bar:
                 embedding = batch["embedding"].to(self.device)
@@ -256,8 +289,8 @@ class ImbagClassifier:
                 # pred = torch.softmax(outputs, dim=1)
                 latlons_labels = self.latlons[labels]
 
-                distance = self.calculate_haversine_distance(latlons_labels, self.latlons.t())
-                smoothed_labels = self.smooth_distances(distance)
+                distances = self.calculate_haversine_distance(latlons_labels, self.latlons.t())
+                smoothed_labels = self.smooth_distances(distances)
                 loss = self.loss_fn(outputs, smoothed_labels)
 
                 optimizer.zero_grad()
@@ -270,6 +303,11 @@ class ImbagClassifier:
                 total_accuracy += accuracy
                 total_top_k_accuracy += top_k_accuracy
 
+                score, dist = calculate_scores_and_distances(outputs, distances)
+
+                total_score += score
+                total_dist += dist
+
                 train_epoch_loss += loss.item()
                 progress_bar.set_postfix(loss=loss.item())
 
@@ -277,19 +315,27 @@ class ImbagClassifier:
             avg_train_loss = train_epoch_loss / len(train_loader)
             average_accuracy = total_accuracy / len(train_loader)
             average_top_k_accuracy = total_top_k_accuracy / len(train_loader)
+            average_score = total_score / len(train_loader)
+            average_dist = total_dist / len(train_loader)
             
             print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss}')
             print(f'Epoch [{epoch+1}/{num_epochs}], Training Accuracy: {average_accuracy}')
             print(f'Epoch [{epoch+1}/{num_epochs}], Training Top-5 Accuracy: {average_top_k_accuracy}')
+            print(f'Epoch [{epoch+1}/{num_epochs}], Training Total Score: {average_score}')
+            print(f'Epoch [{epoch+1}/{num_epochs}], Training Total Distance: {average_dist}')
             wandb.log({"avg_train_loss": avg_train_loss})
             wandb.log({"avg_accuracy": average_accuracy})
             wandb.log({"avg_top_k_accuracy": average_top_k_accuracy})
+            wandb.log({"avg_total_score": average_score})
+            wandb.log({"avg_total_distance": average_dist})
             # Evaluation
             self.classifier.eval()
             with torch.no_grad():
                 eval_epoch_loss = 0.0
                 eval_epoch_accuracy = 0.0
                 total_top_k_accuracy = 0
+                total_score = 0
+                total_dist = 0
                 
                 progress_bar = tqdm(eval_loader, desc=f'Epoch {epoch+1}/{num_epochs}', leave=True)
                 for batch in progress_bar:
@@ -298,8 +344,8 @@ class ImbagClassifier:
                     outputs = self.classifier(embedding)
                     
                     latlons_labels = self.latlons[labels]
-                    distance = self.calculate_haversine_distance(latlons_labels, self.latlons.t())
-                    smoothed_labels = self.smooth_distances(distance)
+                    distances = self.calculate_haversine_distance(latlons_labels, self.latlons.t())
+                    smoothed_labels = self.smooth_distances(distances)
 
                     loss = self.loss_fn(outputs, smoothed_labels)
                     eval_epoch_loss += loss.item()
@@ -308,13 +354,21 @@ class ImbagClassifier:
                     top_k_accuracy = calculate_top_k_accuracy(outputs, labels, k=5)
                     eval_epoch_accuracy += eval_accuracy
                     total_top_k_accuracy += top_k_accuracy
+
+                    score, dist = calculate_scores_and_distances(outputs, distances)
+                    total_score += score
+                    total_dist += dist
                     
                 print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Loss: {eval_epoch_loss / len(eval_loader)}')
                 print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Accuracy: {eval_epoch_accuracy / len(eval_loader)}')
                 print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Top-5 Accuracy: {total_top_k_accuracy / len(eval_loader)}')
+                print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Total Score: {total_score / len(eval_loader)}')
+                print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Total Distance: {total_dist / len(eval_loader)}')
                 wandb.log({"avg_eval_loss": eval_epoch_loss/len(eval_loader)})
                 wandb.log({"avg_eval_accuracy": eval_epoch_accuracy/len(eval_loader)})
                 wandb.log({"avg_eval_top_k_accuracy": total_top_k_accuracy/len(eval_loader)})
+                wandb.log({"avg_eval_total_score": total_score/len(eval_loader)})
+                wandb.log({"avg_eval_total_distance": total_dist/len(eval_loader)})
 
     def save_model(self, path):
         self.classifier.to('cpu')
