@@ -81,7 +81,7 @@ class ImbagViT():
         else:
             self.device = torch.device("cpu")
             self.model = self.model.to(self.device)
-        # wandb.init() # TODO: add project name
+        wandb.init() # TODO: add project name
 
         
         self.id_to_latlon = self.load_geocells('/home/data_shares/geocv/geocells.csv')

@@ -14,26 +14,31 @@ import torch
 import wandb
 
 
-def calculate_accuracy(logits, labels):
+def calculate_top_k_accuracy(logits, labels, k=1):
     """
-    Calculate accuracy of predictions.
+    Calculate top-k accuracy of predictions.
 
     Parameters:
     - logits (torch.Tensor): The logits output by the model. Shape: [batch_size, num_classes].
     - labels (torch.Tensor): The true labels. Shape: [batch_size].
+    - k (int): The value of 'k' in top-k accuracy.
 
     Returns:
-    - accuracy (float): The accuracy of predictions as a percentage.
+    - accuracy (float): The top-k accuracy of predictions as a percentage.
     """
-    # Convert logits to predicted class indices
-    preds = torch.argmax(logits, dim=1)
+    # Get the top k predictions from the logits
+    _, top_k_preds = torch.topk(logits, k, dim=1)
+    
+    # Check if the true labels are in the top k predictions
+    correct_predictions = top_k_preds.eq(labels.view(-1, 1).expand_as(top_k_preds))
+    
     # Calculate the number of correct predictions
-    correct_predictions = torch.sum(preds == labels)
+    correct_predictions = correct_predictions.sum().item()
     
     # Calculate accuracy
     accuracy = (correct_predictions / labels.size(0)) * 100.0  # Convert to percentage
     
-    return accuracy.item()
+    return accuracy
 
 
 def load_embeddings(parquet_path):
@@ -137,12 +142,12 @@ class GeographicalClassifier(nn.Module):
 
 
 class ImbagClassifier:
-    def __init__(self, dataset_path='/home/data_shares/geocv/geocells.csv', dropout=0.5, hidden_layers=[512, 256, 128]):
+    def __init__(self, dataset_path='/home/data_shares/geocv/geocells.csv', dropout=0.5, hidden_layers=[512, 256, 128], label_smoothing_constant=70):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.id_to_latlon = self.load_geocells(path=dataset_path)
-        latlon_list = [[value['lat'], value['lon']] for value in self.id_to_latlon.values()]
-        self.all_latlons_tensor = torch.tensor(latlon_list, dtype=torch.float32, device=self.device)
-        self.loss_fn = self.haversine_loss
+        self.latlons = self.load_geocells(path=dataset_path)
+        self.latlons = self.latlons.to(self.device)
+        
+        self.label_smoothing_constant = label_smoothing_constant
         self.loss_fn = nn.CrossEntropyLoss()
 
         self.classifier = GeographicalClassifier(embedding_dim=768, hidden_dims=hidden_layers, num_classes=1093, dropout_rate=dropout).to(self.device)
@@ -152,37 +157,64 @@ class ImbagClassifier:
     def load_geocells(self, path):
         df = pd.read_csv(path)
 
+        # Convert WKT column to geometry
         df["geometry"] = df["geometry"].apply(wkt.loads)
         gdf = gpd.GeoDataFrame(df)
 
-        # Calculate centroids
+        # Calculate centroids and extract latitudes and longitudes
         gdf['centroid'] = gdf.centroid
+        gdf['lat'] = gdf['centroid'].y
+        gdf['lon'] = gdf['centroid'].x
 
-        # Extract latitudes and longitudes
-        gdf['lat'] = gdf.centroid.y
-        gdf['lon'] = gdf.centroid.x
+        # Convert DataFrame to PyTorch tensor
+        latlons = torch.tensor(gdf[['lat', 'lon']].values, dtype=torch.float32)
 
-        # Create a dictionary for quick ID to lat, lon lookup
-        id_to_latlon = gdf[['lat', 'lon']].to_dict(orient='index')
-        
-        return id_to_latlon
+        return latlons
     
-    def calculate_haversine_distance(self, latlon1, latlon2):
-        """
-        Calculate the Haversine distance between two sets of points (latlon1 and latlon2).
-        Each parameter is a tensor of shape [batch_size, 2], where each row contains latitude and longitude values.
+    def smooth_distances(self, distances):
+            """
+            Smooths the distances by subtracting the minimum distance within each batch and applying
+            exponential smoothing.
 
+            Parameters:
+            - distances: A 2D Tensor where each row represents distances from one item
+            to multiple geocells.
+            - label_smoothing_constant (float): The constant used for smoothing (decay rate in the exponential).
+
+            Returns:
+            - Tensor: The smoothed labels.
+            """
+            label_smoothing_constant = self.label_smoothing_constant
+            # Normalize distances by subtracting the minimum distance in each row
+            adjusted_distances = distances - distances.min(dim=1, keepdim=True)[0]
+            
+            # Apply exponential decay to the adjusted distances
+            smoothed_labels = torch.exp(-adjusted_distances / label_smoothing_constant)
+            
+            # Handle NaN and Inf values by replacing them with zero
+            smoothed_labels = torch.nan_to_num(smoothed_labels, nan=0.0, posinf=0.0, neginf=0.0)
+            
+            return smoothed_labels
+    
+    def calculate_haversine_distance(self, latlon_batch, latlon_geocells):
+        """
+        Calculate the Haversine distance between a batch of points and a set of geocells.
+        
         Parameters:
-        - latlon1: Tensor of shape [batch_size, 2]. Represents the first set of points.
-        - latlon2: Tensor of shape [batch_size, 2]. Represents the second set of points.
+        - latlon_batch: Tensor of shape [batch_size, 2]. Each row contains latitude and longitude values for a point.
+        - latlon_geocells: Tensor of shape [2, number_of_geocells]. Each column contains latitude and longitude values for a geocell.
 
         Returns:
-        - distances: Tensor of shape [batch_size]. The Haversine distance between corresponding points in latlon1 and latlon2.
+        - distances: Tensor of shape [batch_size, number_of_geocells]. The Haversine distance from each point in the batch to each geocell.
         """
         R = 6371.0  # Radius of Earth in kilometers
         # Convert degrees to radians
-        lat1, lon1 = torch.deg2rad(latlon1[:, 0]), torch.deg2rad(latlon1[:, 1])
-        lat2, lon2 = torch.deg2rad(latlon2[:, 0]), torch.deg2rad(latlon2[:, 1])
+        lat1, lon1 = torch.deg2rad(latlon_batch[:, 0]), torch.deg2rad(latlon_batch[:, 1])
+        lat2, lon2 = torch.deg2rad(latlon_geocells[0, :]), torch.deg2rad(latlon_geocells[1, :])
+
+        # Expand lat1, lon1 to match the shape of lat2, lon2 for broadcasting
+        lat1 = lat1.unsqueeze(1).expand(-1, lat2.size(0))
+        lon1 = lon1.unsqueeze(1).expand(-1, lon2.size(0))
 
         # Haversine formula
         dlat = lat2 - lat1
@@ -190,33 +222,11 @@ class ImbagClassifier:
 
         a = torch.sin(dlat / 2)**2 + torch.cos(lat1) * torch.cos(lat2) * torch.sin(dlon / 2)**2
         c = 2 * torch.atan2(torch.sqrt(a), torch.sqrt(1 - a))
-        distance = R * c
+        distances = R * c
 
-        return distance
+        return distances
 
-    def haversine_loss(self, outputs, target_ids):
-        # Convert logits to probabilities
-        probabilities = F.softmax(outputs, dim=1)
-
-        # Get target lat, lon for comparison
-        # Convert target_ids to lat, lon pairs, then to a tensor
-        target_latlons_list = [[self.id_to_latlon[id.item()]['lat'], self.id_to_latlon[id.item()]['lon']] for id in target_ids]
-        target_latlons_array = np.array(target_latlons_list, dtype=np.float32)  # Convert list to numpy array with float32 type
-
-        # Create a PyTorch tensor from the numpy array and move it to the correct device
-        target_latlons = torch.tensor(target_latlons_array, device=outputs.device)  # Shape [batch_size, 2]
-
-        # Calculate distances from all classes to the target, shape [batch_size, num_classes]
-        all_distances = torch.stack([self.calculate_haversine_distance(self.all_latlons_tensor, target_latlon.repeat(self.all_latlons_tensor.shape[0], 1)) for target_latlon in target_latlons])
-
-        # Weight distances by probabilities and sum across classes for each item in batch
-        weighted_distances = torch.sum(all_distances * probabilities, dim=1)
-
-        # Aggregate over the batch
-        return torch.mean(weighted_distances)
-
-    def train_classifier(self, embeddings_path, batch_size=16, num_epochs=10, lr=1e-3):
-        config = wandb.config
+    def train_classifier(self, embeddings_path, batch_size, num_epochs, lr):
         embeddings, ids = load_embeddings(embeddings_path)
         embeddings = embeddings.astype(np.float32)  # Convert embeddings to float32
         # Load the original dataset
@@ -237,55 +247,74 @@ class ImbagClassifier:
             self.classifier.train()
             train_epoch_loss = 0.0
             total_accuracy = 0
+            total_top_k_accuracy = 0
             progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}', leave=True)
             for batch in progress_bar:
                 embedding = batch["embedding"].to(self.device)
                 labels = batch["Geocell"].to(self.device)
                 outputs = self.classifier(embedding)
-                # pred = torch.argmax(outputs, dim=1)
-                loss = self.loss_fn(outputs, labels)
+                # pred = torch.softmax(outputs, dim=1)
+                latlons_labels = self.latlons[labels]
+
+                distance = self.calculate_haversine_distance(latlons_labels, self.latlons.t())
+                smoothed_labels = self.smooth_distances(distance)
+                loss = self.loss_fn(outputs, smoothed_labels)
+
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                accuracy = calculate_accuracy(outputs, labels)
+                accuracy = calculate_top_k_accuracy(outputs, labels)
+                top_k_accuracy = calculate_top_k_accuracy(outputs, labels, k=5)
+
                 total_accuracy += accuracy
+                total_top_k_accuracy += top_k_accuracy
 
                 train_epoch_loss += loss.item()
                 progress_bar.set_postfix(loss=loss.item())
-                # wandb.log({"batch_loss": loss.item()})
-                # wandb.log({"batch_accuracy": accuracy})
 
+            
             avg_train_loss = train_epoch_loss / len(train_loader)
             average_accuracy = total_accuracy / len(train_loader)
+            average_top_k_accuracy = total_top_k_accuracy / len(train_loader)
             
             print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_loss}')
             print(f'Epoch [{epoch+1}/{num_epochs}], Training Accuracy: {average_accuracy}')
+            print(f'Epoch [{epoch+1}/{num_epochs}], Training Top-5 Accuracy: {average_top_k_accuracy}')
             wandb.log({"avg_train_loss": avg_train_loss})
             wandb.log({"avg_accuracy": average_accuracy})
+            wandb.log({"avg_top_k_accuracy": average_top_k_accuracy})
             # Evaluation
             self.classifier.eval()
             with torch.no_grad():
                 eval_epoch_loss = 0.0
                 eval_epoch_accuracy = 0.0
+                total_top_k_accuracy = 0
                 
                 progress_bar = tqdm(eval_loader, desc=f'Epoch {epoch+1}/{num_epochs}', leave=True)
                 for batch in progress_bar:
                     embedding = batch["embedding"].to(self.device)
                     labels = batch["Geocell"].to(self.device)
-                    idxs = batch["id"]
                     outputs = self.classifier(embedding)
-                    loss = self.loss_fn(outputs, labels)
+                    
+                    latlons_labels = self.latlons[labels]
+                    distance = self.calculate_haversine_distance(latlons_labels, self.latlons.t())
+                    smoothed_labels = self.smooth_distances(distance)
+
+                    loss = self.loss_fn(outputs, smoothed_labels)
                     eval_epoch_loss += loss.item()
-                    eval_accuracy = calculate_accuracy(outputs, labels)
+
+                    eval_accuracy = calculate_top_k_accuracy(outputs, labels)
+                    top_k_accuracy = calculate_top_k_accuracy(outputs, labels, k=5)
                     eval_epoch_accuracy += eval_accuracy
-                    # wandb.log({"eval_loss": loss.item()})
-                    # wandb.log({"eval_accuracy": eval_accuracy})
+                    total_top_k_accuracy += top_k_accuracy
                     
                 print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Loss: {eval_epoch_loss / len(eval_loader)}')
                 print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Accuracy: {eval_epoch_accuracy / len(eval_loader)}')
+                print(f'Epoch [{epoch+1}/{num_epochs}], Evaluation Top-5 Accuracy: {total_top_k_accuracy / len(eval_loader)}')
                 wandb.log({"avg_eval_loss": eval_epoch_loss/len(eval_loader)})
                 wandb.log({"avg_eval_accuracy": eval_epoch_accuracy/len(eval_loader)})
+                wandb.log({"avg_eval_top_k_accuracy": total_top_k_accuracy/len(eval_loader)})
 
     def save_model(self, path):
         self.classifier.to('cpu')
@@ -327,10 +356,13 @@ def sweep():
             },
         'hidden_layers': {
             'values': [[840, 960, 1080], [960, 1080], [960]]
+            },
+        'label_smoothing_constant': {
+            'values': [50, 60, 70, 80, 90]
             }
         }
     }
-    sweep_id = wandb.sweep(sweep_config, project=f"ImbagClassifierTEST")
+    sweep_id = wandb.sweep(sweep_config, project=f"ImbagClassifierHaversine")
     return sweep_id
 
 if __name__ == "__main__":
