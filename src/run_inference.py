@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel, CLIPImageProcessor
+from ImbagTrainClassifier import GeographicalClassifier
 import torch
 import argparse
 from math import radians, cos, sin, asin, sqrt, exp
@@ -48,56 +49,60 @@ def embed_image(input_img, processor, model, device):
     image_tensor = inputs["pixel_values"].to(device)
     with torch.no_grad():
         outputs = model.get_image_features(image_tensor)
-    return outputs.cpu().numpy()
+    return outputs
 
-def main(args, model_name = "openai/clip-vit-large-patch14-336",
-         model_path = "/home/data_shares/geocv/models/zesty-forest-48_1.pth",
-         input_img_path = "/home/data_shares/geocv/test_img.png",
-         embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_ids.parquet',
-         metadata_path = '/home/data_shares/geocv/imbag_metadata.csv'
-         ):
+def main(input_lon, input_lat):
     
-    processor = CLIPProcessor.from_pretrained(model_name)
-    model = CLIPModel.from_pretrained(model_name)
-    model.load_state_dict(torch.load(model_path))
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    model.eval()
+    input_img = Image.open(input_img_path)
+    embedded_input_img = embed_image(input_img, processor, model, device)
+
 
     embeddings_df = pd.read_parquet(embeddings_path)
     metadata_df = pd.read_csv(metadata_path)
+    
+    top_k_geocells = classifier(embedded_input_img)
+    values, indices = torch.softmax(top_k_geocells, dim=1).sort(descending=True)
 
-    geocells = [int(geocell) for geocell in args.geocells] 
+    selected_geocells = []
+    selected_values = []
+    for value, idx in zip(values[0], indices[0]):
+        if value.item() > 0.10: 
+            selected_geocells.append(int(idx))
+            selected_values.append(value.item())
+
 
     embeddings_subset = embeddings_df.merge(metadata_df[['Geocell']].reset_index(names='id'), on='id')
-    embeddings_subset = embeddings_subset[embeddings_subset['Geocell'].isin(geocells)].drop(columns='Geocell')
+    embeddings_subset = embeddings_subset[embeddings_subset['Geocell'].isin(selected_geocells)].drop(columns='Geocell')
 
     if embeddings_subset.empty:
         print("No matching geocells found.")
         return
 
-    input_img = Image.open(input_img_path)
-    embedded_input_img = embed_image(input_img, processor, model, device)
-    print(embedded_input_img.shape)
-    print(embeddings_subset.shape)
-    print(embeddings_subset)
-
     lon, lat = get_closest_image(embedded_input_img, embeddings_subset, metadata_df)
-    distance = haversine(lon, lat, float(args.lon), float(args.lat))
+    distance = haversine(lon, lat, float(input_lon), float(input_lat))
     
     score = calculate_score(distance)
     print(f'Latitude: {lat}, Longitude: {lon}')
     print(f'Google Maps Link: https://www.google.com/maps/@{lat},{lon},17z?entry=ttu')
-    print(f'Score: {score}')
+    print(f'Distance: {round(distance)} km')
+    print(f'Score: {round(score)} points\n')
+    
+    for geocell, value in zip(selected_geocells, selected_values):
+        print(f"Geocell: {geocell}, Probability: {round(value,4)}")
+    return score
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Find the closest image based on CLIP embeddings and score it.')
+model_name = "openai/clip-vit-large-patch14-336"
+model_path = "/home/data_shares/geocv/models/zesty-forest-48_1.pth"
+input_img_path = "/home/data_shares/geocv/test_img.png"
+embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_ids.parquet'
+metadata_path = '/home/data_shares/geocv/imbag_metadata.csv'
+classifier_path = '/home/data_shares/geocv/models/cls_solar-sweep-285.pth'
+classifier = torch.load(classifier_path)
+processor = CLIPProcessor.from_pretrained(model_name)
+model = CLIPModel.from_pretrained(model_name)
+model.load_state_dict(torch.load(model_path))
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+model.eval()
 
-    parser.add_argument('--geocells', nargs='+', required=True, help='List of geocells of interest')
-    parser.add_argument('--input_img_path', required=False, help='Path to the input image file')
-    parser.add_argument('--lon', type=float, required=True, help='Reference longitude for scoring')
-    parser.add_argument('--lat', type=float, required=True, help='Reference latitude for scoring')
-
-    args = parser.parse_args()
-
-    main(args)
+results = main(10.1826251,56.1678988)
