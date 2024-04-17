@@ -1,10 +1,9 @@
 import pandas as pd
 import numpy as np
 from PIL import Image
-from transformers import CLIPProcessor, CLIPModel, CLIPImageProcessor
+from transformers import CLIPProcessor, CLIPModel
 from ImbagTrainClassifier import GeographicalClassifier
 import torch
-import argparse
 from math import radians, cos, sin, asin, sqrt, exp
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
@@ -24,8 +23,7 @@ def get_closest_image(embedded_input_img, embeddings_df, metadata):
 
 def haversine(lon1, lat1, lon2, lat2):
     """
-    Calculate the great circle distance between two points 
-    on the earth (specified in decimal degrees).
+    Calculate haversine distance between two points on the earth.
     """
     # Convert decimal degrees to radians
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
@@ -40,7 +38,7 @@ def haversine(lon1, lat1, lon2, lat2):
 
 def calculate_score(distance):
     """
-    Calculate the score based on the distance using the provided formula.
+    Calculate the score based on the distance using the Geoguessr formula.
     """
     return 5000 * exp(-distance / 1492.7)
 
@@ -88,21 +86,22 @@ def main(input_lon, input_lat):
     print(f'Score: {round(score)} points\n')
     
     for geocell, value in zip(selected_geocells, selected_values):
-        print(f"Geocell: {geocell}, Probability: {round(value,4)}")
+        print(f"Geocell: {geocell}\t Country: {metadata_df[metadata_df['Geocell'] == geocell].Country.value_counts().index[0]}\t Probability: {round(value,4)}")
     return score
 
-model_name = "openai/clip-vit-large-patch14-336"
-model_path = "/home/data_shares/geocv/models/zesty-forest-48_1.pth"
-input_img_path = "/home/data_shares/geocv/test_img.png"
-embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_ids.parquet'
-metadata_path = '/home/data_shares/geocv/imbag_metadata.csv'
-classifier_path = '/home/data_shares/geocv/models/cls_solar-sweep-285.pth'
-classifier = torch.load(classifier_path)
-processor = CLIPProcessor.from_pretrained(model_name)
-model = CLIPModel.from_pretrained(model_name)
-model.load_state_dict(torch.load(model_path))
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
-model.eval()
-
-results = main(10.1826251,56.1678988)
+if __name__ == '__main__':
+    model_name = "openai/clip-vit-large-patch14-336"
+    model_path = "/home/data_shares/geocv/models/zesty-forest-48_1.pth"
+    input_img_path = "/home/data_shares/geocv/fd.jpg"
+    embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_ids.parquet'
+    metadata_path = '/home/data_shares/geocv/imbag_metadata.csv'
+    classifier_path = '/home/data_shares/geocv/models/cls_solar-sweep-285.pth'
+    device = torch.device("cpu")
+    classifier = torch.load(classifier_path)
+    classifier.to(device)
+    processor = CLIPProcessor.from_pretrained(model_name)
+    model = CLIPModel.from_pretrained(model_name)
+    model.load_state_dict(torch.load(model_path))
+    model.to(device)
+    model.eval()
+    results = main(36.8219, -1.2921)
