@@ -10,7 +10,7 @@ def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
 
 def find_most_similar(target_embedding: np.ndarray, dataset_embeddings: np.ndarray) -> np.ndarray:
-    similarities = np.array([cosine_similarity(target_embedding, emb) for emb in dataset_embeddings])
+    similarities = np.array([cosine_similarity(target_embedding, emb) for emb in dataset_embeddings]).squeeze()
     sorted_indices = np.argsort(-similarities)
     return sorted_indices, similarities[sorted_indices]
 
@@ -111,7 +111,7 @@ def main(input_lon, input_lat):
 if __name__ == '__main__':
     model_name = "openai/clip-vit-large-patch14-336"
     model_path = "/home/data_shares/geocv/models/zesty-forest-48_1.pth"
-    input_img_path = "/home/data_shares/geocv/vollsmose.png"
+    input_img_path = "/home/data_shares/geocv/polska.png"
     embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_ids.parquet'
     metadata_path = '/home/data_shares/geocv/imbag_metadata.csv'
     classifier_path = '/home/data_shares/geocv/models/cls_solar-sweep-285.pth'
@@ -123,4 +123,4 @@ if __name__ == '__main__':
     model.load_state_dict(torch.load(model_path))
     model.to(device)
     model.eval()
-    results = main(10.4303712,55.4100432)
+    results = main(19.0117009,51.4775656)
