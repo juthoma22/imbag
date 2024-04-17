@@ -63,10 +63,27 @@ def main(input_lon, input_lat):
 
     selected_geocells = []
     selected_values = []
+
     for value, idx in zip(values[0], indices[0]):
-        if value.item() > 0.10: 
-            selected_geocells.append(int(idx))
-            selected_values.append(value.item())
+        try:
+            numeric_value = value.item()
+            if numeric_value > 0.10:
+                selected_geocells.append(int(idx))
+                selected_values.append(numeric_value)
+        except AttributeError:
+            print("Error processing value:", value)
+
+    if sum(selected_values) < 0.50:
+        for value, idx in zip(values[0], indices[0]):
+            try:
+                numeric_value = value.item()
+                if numeric_value <= 0.10:
+                    selected_geocells.append(int(idx))
+                    selected_values.append(numeric_value)
+                    if sum(selected_values) >= 0.50:
+                        break
+            except AttributeError:
+                print("Error processing value:", value)
 
 
     embeddings_subset = embeddings_df.merge(metadata_df[['Geocell']].reset_index(names='id'), on='id')
@@ -77,13 +94,15 @@ def main(input_lon, input_lat):
         return
 
     lon, lat = get_closest_image(embedded_input_img, embeddings_subset, metadata_df)
+    guess = metadata_df[(metadata_df['Latitude'] == lat) & (metadata_df['Longitude'] == lon)].iloc[0]
     distance = haversine(lon, lat, float(input_lon), float(input_lat))
     
     score = calculate_score(distance)
-    print(f'Latitude: {lat}, Longitude: {lon}')
+    print(f"Latitude: {lat}, Longitude: {lon} - {guess['Country']}, {guess['Region']}\n")
     print(f'Google Maps Link: https://www.google.com/maps/@{lat},{lon},17z?entry=ttu')
     print(f'Distance: {round(distance)} km')
     print(f'Score: {round(score)} points\n')
+
     
     for geocell, value in zip(selected_geocells, selected_values):
         print(f"Geocell: {geocell}\t Country: {metadata_df[metadata_df['Geocell'] == geocell].Country.value_counts().index[0]}\t Probability: {round(value,4)}")
@@ -92,7 +111,7 @@ def main(input_lon, input_lat):
 if __name__ == '__main__':
     model_name = "openai/clip-vit-large-patch14-336"
     model_path = "/home/data_shares/geocv/models/zesty-forest-48_1.pth"
-    input_img_path = "/home/data_shares/geocv/fd.jpg"
+    input_img_path = "/home/data_shares/geocv/vollsmose.png"
     embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_ids.parquet'
     metadata_path = '/home/data_shares/geocv/imbag_metadata.csv'
     classifier_path = '/home/data_shares/geocv/models/cls_solar-sweep-285.pth'
@@ -104,4 +123,4 @@ if __name__ == '__main__':
     model.load_state_dict(torch.load(model_path))
     model.to(device)
     model.eval()
-    results = main(36.8219, -1.2921)
+    results = main(10.4303712,55.4100432)
