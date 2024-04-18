@@ -12,6 +12,7 @@ def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
 def find_most_similar(target_embedding: np.ndarray, dataset_embeddings: np.ndarray) -> np.ndarray:
     similarities = np.array([cosine_similarity(target_embedding, emb) for emb in dataset_embeddings])
     sorted_indices = np.argsort(-similarities)
+    print(sorted_indices)
     return sorted_indices, similarities[sorted_indices]
 
 def get_closest_image(embedded_input_img, embeddings_df, metadata):
