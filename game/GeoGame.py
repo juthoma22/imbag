@@ -85,18 +85,22 @@ class GeoGame:
 
         return current_round
 
-    def join_game(self, game_id, session):
+    def join_game(self, party_code, session):
         driver = webdriver.Firefox()
         driver.get('https://www.geoguessr.com/')
         driver.add_cookie({'name':'_ncfa', 'value':token})
         driver.refresh()
-        url = f"https://www.geoguessr.com/join/{game_id}?s=Url"
+        url = f"https://www.geoguessr.com/join/{party_code}?s=Url"
         driver.get(url)
         session, isProUser = self.get_session(token)
         driver.refresh()
         wait = WebDriverWait(driver, 20)
         driver.maximize_window()
         wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="accept-choices"]'))).click()
+
+        while url in driver.current_url:
+            time.sleep(0.5)
+        game_id = driver.current_url.split('/')[-1]
 
         return driver, game_id, session, isProUser
 

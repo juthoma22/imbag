@@ -24,8 +24,8 @@ if __name__ == '__main__':
         while True:
             
             if game_mode == 'duels_party':
-                game_id = "abc"
-                driver, game_id, session, isProUser = game.join_game(game_id, session)
+                party_code = "abc"
+                driver, game_id, session, isProUser = game.join_game(party_code, session)
 
             else:
                 driver, game_id, session, isProUser, game_mode = game.start_game(game_mode)
