@@ -4,11 +4,12 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 import time
 import random
 
-token = r'TY23Wj1cjgTuSAfi8byYldW2sLpnrQiPkLomyfMoSdY%3DWLPb6uBpV%2FNsKyUOjJCK%2BJDeg0YxYEhyhE2KyGcQwcoTedbJcTkOyt0L6GvRHaTIYlj3kfOfunYpe%2BUT3MJtYRi%2BclxqtfQFW4tSsIiJFo0%3D'
+token = r'TY23Wj1cjgTuSAfi8byYldW2sLpnrQiPkLomyfMoSdY%3DWLPb6uBpV%2FNsKyUOjJCK%2BJDeg0YxYEhyhE2KyGcQwcoTedbJcTkOyt0L6GvRHaTIYlj3kfOfunYpe%2BUT3MJtYRi%2BclxqtfQFW4tSsIiJFo0%3D' # juthoma
+# token = r'lQ3WYhyUoftGEuqJRUIP3uTF%2BlYewaXMc3bvkjBA1eo%3DBzWlf4bDQsA6mwj0I7bklqRlLhG%2F77KQxiKbjbLpLnhtaO1tVorpRricStcxJuJKCa4up5CycmSptBlb%2BMK0Cy7m4NWcJcp2U0GRn%2F2Jc%2F4%3D' # imbag
 
 class GeoGame:
     
@@ -44,7 +45,8 @@ class GeoGame:
     def guess_location(self, game_mode, session, game_id, lat, lng, round_number, driver):
         guess_data = {
                 "lat": lat,
-                "lng": lng
+                "lng": lng,
+                "roundNumber": round_number,
                 }
         
         if game_mode == 'duels':
@@ -60,32 +62,19 @@ class GeoGame:
             retval = session.post(f'https://www.geoguessr.com/api/v3/games/{game_id}', json=guess_data)
 
         else:
-            retval = session.post(f'https://game-server.geoguessr.com/api/{game_mode}/{game_id}/guess', json=guess_data)
+            retval = session.post(f'https://game-server.geoguessr.com/api/duels/{game_id}/guess', json=guess_data)
 
-        # print(retval.text)
-            
         print(f'Guess submitted for round {round_number}')
         
         if game_mode == 'country_streak':
             driver.refresh()
             wait = WebDriverWait(driver, 20)
             wait.until(EC.element_to_be_clickable((By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div[2]/div[1]/div[2]/div/div[2]/div/div/div[4]/div/div/button"))).click()
-            game_id = driver.current_url.split('/')[-1]
-            current_round = 0
-
-        
-        if game_mode == 'world':
-            driver.refresh()
-            game_id = driver.current_url.split('/')[-1]
-            current_round = 0
 
         else:
             driver.refresh()
-            current_round = round_number + 1
 
-        return current_round
-
-    def join_game(self, party_code, session):
+    def join_game(self, party_code):
         driver = webdriver.Firefox()
         driver.get('https://www.geoguessr.com/')
         driver.add_cookie({'name':'_ncfa', 'value':token})
@@ -97,6 +86,8 @@ class GeoGame:
         wait = WebDriverWait(driver, 20)
         driver.maximize_window()
         wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="accept-choices"]'))).click()
+
+        url = "https://www.geoguessr.com/party"
 
         while url in driver.current_url:
             time.sleep(0.5)
@@ -144,7 +135,7 @@ class GeoGame:
             wait.until(EC.element_to_be_clickable((By.XPATH, xpath_non_pro))).click()
         
         while url in driver.current_url:
-            time.sleep(0.5)
+            time.sleep(0.1)
         game_id = driver.current_url.split('/')[-1]
         
         return driver, game_id, session, isProUser, game_mode
@@ -157,42 +148,80 @@ class GeoGame:
             pass
 
 
-    def take_screenshots(self, driver, filename, game_id):
+    def take_screenshots(self, driver, filename, game_id, game_mode, is_pro, second_model):
 
         # removing elements
-        driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/aside/div")) # left side controls
-        driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[2]")) # top hud
-        driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[2]/div/div[2]")) # top right (streak counter)
-        driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[3]/div")) # map
-        driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[10]")) # arrows
-        driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[16]/div")) # arrows
-        
+        print("Removing elements")
+        print(game_mode, is_pro)
+        time.sleep(0.2)
+        if is_pro:
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/aside[2]/div")) # left side controls
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/div[1]/div")) # top hud
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/aside[1]/div")) # chat & emotes
+            if game_mode == 'duels_party':
+                driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[3]/div")) # map
+                element = driver.find_element(By.XPATH, '/html/body/div/div[2]/div[2]/main/div/div/div[2]/div/div/div/div/div[2]/div[1]/div[9]/div/div/canvas[1]') # or your another selector here
+                driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/div[2]/div/div/div/div/div[2]/div[1]/div[10]")) # arrows
+            else:
+                driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[3]/div")) # map
+                driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[10]")) # arrows
+                element = driver.find_element(By.XPATH, '/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[9]/div/div/canvas') # or your another selector here
+        else:
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[3]/main/div/div/aside[2]/div")) # left side controls
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[3]/main/div/div/aside[1]/div/div[2]/div/div[1]")) # chat & emotes
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[3]/main/div/div/div[1]")) # top hud
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[3]/main/div/div/div[2]/div/div[3]/div/div/div/div[3]/div[1]/div[2]")) # map
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[3]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[10]")) # arrows
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[1]"))# pro banner
+            element = driver.find_element(By.XPATH, '/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[9]/div/div/canvas')
+
+            if game_mode == "country_streak":
+                driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[2]/div/div[2]")) # top right (streak counter)
+            
+        print("Removed elements")
+        print("Taking screenshots")
         action = webdriver.ActionChains(driver)
-        element = driver.find_element(By.XPATH, '/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[9]/div/div/canvas') # or your another selector here
         filenames = []
-        for i in range(4):
-            action.drag_and_drop_by_offset(element, 750, 0).perform()   # 700px to the right, 0px to bottom
-            time.sleep(0.2)
-            filepath = f'imgs/{game_id}/{filename}_{i+1}.png'
-            driver.save_screenshot(filepath)
+        filepath = f'imgs/{game_id}/{filename}_{1}.png'
+        driver.save_screenshot(filepath)
+        filenames.append(filepath)
+        for i in range(2):  # 700px to the right, 0px to bottom
+            x = 490
+            action.drag_and_drop_by_offset(element, x, 0).perform()
+            action.drag_and_drop_by_offset(element, x, 0).perform()
+            action.drag_and_drop_by_offset(element, x, 0).perform()
+            time.sleep(0.2) 
+            filepath = f'imgs/{game_id}/{filename}_{i+2}.png'
+            if not second_model:
+                driver.save_screenshot(filepath)
             filenames.append(filepath)
+
+        driver.refresh()
         
         return filenames
 
 
-    def play_round(self, driver, game_mode, game_id, session, new_round):
+    def play_round(self, driver, game_mode, game_id, session, round, is_pro, second_model=False):
         print("playing round")
+        if game_mode == 'duels_party':
+            if is_pro:
+                x_path = "/html/body/div/div[2]/div[2]/main/div/div/div[3]/div/div[3]/div/div/div/div[3]/div[1]/div[2]"
+            else:
+                x_path = "/html/body/div[1]/div[2]/div[3]/main/div/div/div[3]/div/div[3]/div/div/div/div[3]/div[1]/div[2]"
+
+        else:
+            x_path = "/html/body/div/div[2]/div[2]/main/div/div/div[4]/div/div[3]/div/div/div/div[3]/div[1]/div[2]"
+        
+        print("Waiting for round to load...")
         try:
-            wait = WebDriverWait(driver, 20)
-            wait.until(EC.presence_of_element_located((By.XPATH, '/html/body/div/div[2]/div[2]/main/div/div/div[4]/div/div[3]/div/div/div/div[3]/div[1]/div[2]'))) ### dont think it works
-        except NoSuchElementException:
-            print("Map not loaded")
-            time.sleep(1)
+            wait = WebDriverWait(driver, 50)
+            wait.until(EC.presence_of_element_located((By.XPATH, x_path))) ### dont think it works
+        except TimeoutException:
+            TimeoutException("Map not loaded")
 
-        current_round = new_round
-        print(f'Current round: {current_round}')
+        print("Round loaded")
 
-        filename = f'round_{current_round}'
-        filenames = self.take_screenshots(driver, filename, game_id)
+        filename = f'round_{round}'
+        filenames = self.take_screenshots(driver, filename, game_id, game_mode, is_pro, second_model)
 
-        return filenames, current_round
+        return filenames
