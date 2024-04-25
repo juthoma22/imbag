@@ -154,7 +154,7 @@ class GeoGame:
         print("Removing elements")
         print(game_mode, is_pro)
         time.sleep(0.2)
-        if is_pro:
+        if is_pro and game_mode == 'duels_party':
             driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/aside[2]/div")) # left side controls
             driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/div[1]/div")) # top hud
             driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/aside[1]/div")) # chat & emotes
@@ -162,22 +162,14 @@ class GeoGame:
                 driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[3]/div")) # map
                 element = driver.find_element(By.XPATH, '/html/body/div/div[2]/div[2]/main/div/div/div[2]/div/div/div/div/div[2]/div[1]/div[9]/div/div/canvas[1]') # or your another selector here
                 driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/div[2]/div/div/div/div/div[2]/div[1]/div[10]")) # arrows
-            else:
-                driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[3]/div")) # map
-                driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[10]")) # arrows
-                element = driver.find_element(By.XPATH, '/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[9]/div/div/canvas') # or your another selector here
-        else:
-            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[3]/main/div/div/aside[2]/div")) # left side controls
-            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[3]/main/div/div/aside[1]/div/div[2]/div/div[1]")) # chat & emotes
-            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[3]/main/div/div/div[1]")) # top hud
-            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[3]/main/div/div/div[2]/div/div[3]/div/div/div/div[3]/div[1]/div[2]")) # map
-            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[3]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[10]")) # arrows
-            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[1]"))# pro banner
-            element = driver.find_element(By.XPATH, '/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[9]/div/div/canvas')
+        elif is_pro and game_mode == 'world':
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/aside/div")) # left side controls
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/div[2]")) # top hud
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[2]/div")) # top right
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[3]")) # map
+            driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[10]")) # arrows
+            element = driver.find_element(By.XPATH, '/html/body/div[1]/div[2]/div[2]/main/div/div/div[1]/div/div/div/div/div[2]/div[1]/div[9]/div/div/canvas[1]')
 
-            if game_mode == "country_streak":
-                driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[2]/div/div[2]")) # top right (streak counter)
-            
         print("Removed elements")
         print("Taking screenshots")
         action = webdriver.ActionChains(driver)

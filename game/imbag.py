@@ -21,7 +21,7 @@ if __name__ == '__main__':
         print("Starting Game...")
         game = GeoGame()
 
-        game_mode = 'duels_party'
+        game_mode = 'world'
 
         if game_mode == 'duels_party':
             party_code = "6XDP"
