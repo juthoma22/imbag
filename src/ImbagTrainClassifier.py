@@ -257,17 +257,20 @@ class ImbagClassifier:
 
         return distances
 
-    def train_classifier(self, embeddings_path, batch_size, num_epochs, lr):
-        embeddings, ids = load_embeddings(embeddings_path)
-        embeddings = embeddings.astype(np.float32)  # Convert embeddings to float32
+    def train_classifier(self, embeddings_path_val,embeddings_path_train, batch_size, num_epochs, lr):
+        embeddings_val, ids_val = load_embeddings(embeddings_path_val)
+        embeddings_train, ids_train = load_embeddings(embeddings_path_train)
+
+        embeddings_val = embeddings_val.astype(np.float32)
+        embeddings_train = embeddings_train.astype(np.float32)
         # Load the original dataset
         dataset = load_google_data("imbag_clip_dataset.hf")
         train_dataset = dataset['train']
         eval_dataset = dataset['validation']
 
         # Wrap with EmbeddingsDataset
-        train_dataset = EmbeddingsDataset(train_dataset, embeddings, ids)
-        eval_dataset = EmbeddingsDataset(eval_dataset, embeddings, ids)
+        train_dataset = EmbeddingsDataset(train_dataset, embeddings_train, ids_train)
+        eval_dataset = EmbeddingsDataset(eval_dataset, embeddings_val, ids_val)
 
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         eval_loader = DataLoader(eval_dataset, batch_size=batch_size, shuffle=False)
@@ -378,12 +381,13 @@ def main():
     wandb.init()
     config = wandb.config  # Access the config object
     dataset_path = '/home/data_shares/geocv/geocells.csv'
-    embeddings_path = '/home/data_shares/geocv/zesty-forest-48_1_embeddings_with_ids.parquet'
-    print(embeddings_path)
+    embeddings_path_val = '/home/data_shares/geocv/graceful-paper-87_5_embeddings_with_ids_val.parquet'
+    embeddings_path_train = '/home/data_shares/geocv/graceful-paper-87_5_embeddings_with_ids_train.parquet'
+    print(embeddings_path_val)
 
     classifier = ImbagClassifier(dataset_path=dataset_path, dropout=config.dropout, hidden_layers=config.hidden_layers)
 
-    classifier.train_classifier(embeddings_path=embeddings_path, batch_size=config.batch_size, num_epochs=config.epochs, lr=config.learning_rate)
+    classifier.train_classifier(embeddings_path_val=embeddings_path_val, embeddings_path_train=embeddings_path_train, batch_size=config.batch_size, num_epochs=config.epochs, lr=config.learning_rate)
     classifier.save_model(f"models/cls_{wandb.run.name}.pth")
     print("Training complete.")
 
@@ -416,7 +420,7 @@ def sweep():
             }
         }
     }
-    sweep_id = wandb.sweep(sweep_config, project=f"ImbagClassifierHaversine")
+    sweep_id = wandb.sweep(sweep_config, project=f"ImbagClassifierHaversinePano")
     return sweep_id
 
 if __name__ == "__main__":

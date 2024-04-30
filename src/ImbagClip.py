@@ -45,7 +45,7 @@ climate_zone_descriptions = {
 
 
 class ImbagClip():
-    def __init__(self, batch_size=8, learning_rate=5e-6, epochs=3, mode="country_first"):
+    def __init__(self, batch_size=8, learning_rate=1e-3, epochs=3, mode="country_first"):
         """
         Take dataset configuration
         Load dataset in that configuration
@@ -160,7 +160,7 @@ class ImbagClip():
         Returns:
         dataset: dataset object
         """
-        dataset = load_google_data("imbag_clip_dataset.hf")
+        dataset = load_google_data("panos_dataset.hf")
         self.train_dataset, self.validation_dataset = dataset['train'], dataset['validation']
         # self.train_dataset = self.train_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(10)])
         # self.validation_dataset = self.validation_dataset.select([random.randint(0, len(self.train_dataset)) for _ in range(10)])
@@ -178,7 +178,6 @@ class ImbagClip():
 
             country_dataset_train = self.train_dataset.rename_column("Country Caption", "input_ids").rename_column("Country Attention Mask", "attention_mask").remove_columns(["Climate Zone Caption", "Climate Zone Attention Mask", "Geocell Caption", "Geocell Attention Mask"])
             climate_dataset_train = self.train_dataset.rename_column("Climate Zone Caption", "input_ids").rename_column("Climate Zone Attention Mask", "attention_mask").remove_columns(["Country Caption", "Country Attention Mask", "Geocell Caption", "Geocell Attention Mask"])
-            geocell_dataset_train = self.train_dataset.rename_column("Geocell Caption", "input_ids").rename_column("Geocell Attention Mask", "attention_mask").remove_columns(["Country Caption", "Country Attention Mask", "Climate Zone Caption", "Climate Zone Attention Mask"])
             
             if self.mode == "country_first":
                 self.train_dataset = concatenate_datasets([country_dataset_train, climate_dataset_train])
@@ -190,6 +189,7 @@ class ImbagClip():
                 self.train_dataset = concatenate_datasets([country_dataset_train, climate_dataset_train])
 
             elif self.mode == "geocell_only":
+                geocell_dataset_train = self.train_dataset.rename_column("Geocell Caption", "input_ids").rename_column("Geocell Attention Mask", "attention_mask").remove_columns(["Country Caption", "Country Attention Mask", "Climate Zone Caption", "Climate Zone Attention Mask"])
                 self.train_dataset = concatenate_datasets([geocell_dataset_train])
 
 
