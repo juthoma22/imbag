@@ -38,7 +38,6 @@ def process_data(data_partition):
         embeddings.append(embedding)
         indices.append(row["__index_level_0__"])
 
-# Assuming load_google_data is defined elsewhere and loads your data
 data = load_google_data("imbag_clip_dataset.hf")
 
 # Process validation and train data

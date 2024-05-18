@@ -8,8 +8,8 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 import time
 import random
 
-token = r'TY23Wj1cjgTuSAfi8byYldW2sLpnrQiPkLomyfMoSdY%3DWLPb6uBpV%2FNsKyUOjJCK%2BJDeg0YxYEhyhE2KyGcQwcoTedbJcTkOyt0L6GvRHaTIYlj3kfOfunYpe%2BUT3MJtYRi%2BclxqtfQFW4tSsIiJFo0%3D' # juthoma
-# token = r'lQ3WYhyUoftGEuqJRUIP3uTF%2BlYewaXMc3bvkjBA1eo%3DBzWlf4bDQsA6mwj0I7bklqRlLhG%2F77KQxiKbjbLpLnhtaO1tVorpRricStcxJuJKCa4up5CycmSptBlb%2BMK0Cy7m4NWcJcp2U0GRn%2F2Jc%2F4%3D' # imbag
+# token = r'TY23Wj1cjgTuSAfi8byYldW2sLpnrQiPkLomyfMoSdY%3DWLPb6uBpV%2FNsKyUOjJCK%2BJDeg0YxYEhyhE2KyGcQwcoTedbJcTkOyt0L6GvRHaTIYlj3kfOfunYpe%2BUT3MJtYRi%2BclxqtfQFW4tSsIiJFo0%3D' # juthoma
+token = r'lQ3WYhyUoftGEuqJRUIP3uTF%2BlYewaXMc3bvkjBA1eo%3DBzWlf4bDQsA6mwj0I7bklqRlLhG%2F77KQxiKbjbLpLnhtaO1tVorpRricStcxJuJKCa4up5CycmSptBlb%2BMK0Cy7m4NWcJcp2U0GRn%2F2Jc%2F4%3D' # imbag
 
 class GeoGame:
     
@@ -160,7 +160,7 @@ class GeoGame:
             driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/aside[1]/div")) # chat & emotes
             if game_mode == 'duels_party':
                 driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/div[3]/div")) # map
-                element = driver.find_element(By.XPATH, '/html/body/div/div[2]/div[2]/main/div/div/div[2]/div/div/div/div/div[2]/div[1]/div[9]/div/div/canvas[1]') # or your another selector here
+                element = driver.find_element(By.XPATH, '/html/body/div/div[2]/div[2]/main/div/div/div[2]/div/div/div/div/div[2]/div[1]/div[9]/div/div/canvas[1]') # or another selector here
                 driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div/div[2]/div[2]/main/div/div/div[2]/div/div/div/div/div[2]/div[1]/div[10]")) # arrows
         elif is_pro and game_mode == 'world':
             driver.execute_script("arguments[0].remove();", driver.find_element(By.XPATH, "/html/body/div[1]/div[2]/div[2]/main/div/div/aside/div")) # left side controls
@@ -178,7 +178,7 @@ class GeoGame:
         driver.save_screenshot(filepath)
         filenames.append(filepath)
         for i in range(2):  # 700px to the right, 0px to bottom
-            x = 490
+            x = 400
             action.drag_and_drop_by_offset(element, x, 0).perform()
             action.drag_and_drop_by_offset(element, x, 0).perform()
             action.drag_and_drop_by_offset(element, x, 0).perform()

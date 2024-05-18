@@ -42,7 +42,6 @@ def calculate_accuracy(logits, labels):
 class ViTClassifierHead(nn.Module):
     def __init__(self, input_dim, num_classes):
         super(ViTClassifierHead, self).__init__()
-        # Replace the classifier with one that matches your number of classes
         self.classifier = nn.Linear(input_dim, num_classes)
 
     def forward(self, features):
